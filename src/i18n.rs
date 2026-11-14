@@ -166,7 +166,7 @@ pub static RU: T = T {
     theme_dark: "Обсидиан",
     theme_light: "Бумага",
 
-    hero_kicker: "персональный узел / личный архив",
+    hero_kicker: "инженер-программист",
     hero_cta_articles: "Читать статьи",
     hero_cta_about: "Кто я такой",
     hero_status: "статус",
@@ -174,7 +174,7 @@ pub static RU: T = T {
     hero_render: "рендер",
 
     latests: "Свежие записи",
-    latests_sub: "Технические заметки, разборы и рабочие журналы.",
+    latests_sub: "Заметки о системах, коде и замерах.",
     all_articles: "Все статьи",
     empty_state: "Пока пусто. Первая запись появится из кабинета.",
     read_min: "мин чтения",
@@ -209,13 +209,13 @@ pub static RU: T = T {
     about_license: "Лицензия",
     about_license_text: "RZ-NONCOMMERCIAL-1.0: запрещено любое коммерческое использование и монетизация.",
 
-    not_found_title: "404 / маршрут не найден",
+    not_found_title: "Страница не найдена",
     not_found_text: "Такого адреса нет. Возможно, страница переехала или ещё не написана.",
     not_found_cta: "На главную",
-    server_error_title: "500 / сбой узла",
+    server_error_title: "Что-то сломалось",
     server_error_text: "Внутренняя ошибка. Запись в журнале уже сделана.",
 
-    footer_built: "собрано на Rust · без внешних запросов",
+    footer_built: "собрано на Rust",
     footer_license: "некоммерческая лицензия",
     footer_views: "просмотров",
     footer_admin: "вход для владельца",
@@ -288,7 +288,7 @@ pub static EN: T = T {
     theme_dark: "Obsidian",
     theme_light: "Paper",
 
-    hero_kicker: "personal node / private archive",
+    hero_kicker: "software engineer",
     hero_cta_articles: "Read the articles",
     hero_cta_about: "Who I am",
     hero_status: "status",
@@ -296,7 +296,7 @@ pub static EN: T = T {
     hero_render: "render",
 
     latests: "Latest entries",
-    latests_sub: "Technical notes, teardowns and working logs.",
+    latests_sub: "Notes on systems, code and measurements.",
     all_articles: "All articles",
     empty_state: "Nothing here yet. The first entry comes from the cabinet.",
     read_min: "min read",
@@ -331,13 +331,13 @@ pub static EN: T = T {
     about_license: "License",
     about_license_text: "RZ-NONCOMMERCIAL-1.0: all commercial use and monetization is prohibited.",
 
-    not_found_title: "404 / route not found",
+    not_found_title: "Page not found",
     not_found_text: "No such address. The page may have moved or was never written.",
     not_found_cta: "Back to index",
-    server_error_title: "500 / node fault",
+    server_error_title: "Something broke",
     server_error_text: "Internal error. It has been written to the log.",
 
-    footer_built: "built with Rust · zero external requests",
+    footer_built: "built with Rust",
     footer_license: "non-commercial license",
     footer_views: "views",
     footer_admin: "owner sign-in",
