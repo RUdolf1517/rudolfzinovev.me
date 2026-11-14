@@ -8,13 +8,12 @@ use std::time::Instant;
 use crate::crypto;
 use crate::db::{ArticleFilter, NewArticle, Store};
 use crate::http::{self, RateLimiter, Request, Response};
-use crate::i18n::{self, Lang, Theme, t};
+use crate::i18n::{self, Lang, t};
 use crate::models::{Article, BackupStats, Profile, ViewRecord, detect_lang, slug_of};
 use crate::templates::{self, Chrome};
 
 const SESSION_COOKIE: &str = "rz_session";
 const CSRF_COOKIE: &str = "rz_csrf";
-const THEME_COOKIE: &str = "rz_theme";
 const PROFILE_TTL_SECS: i64 = 5;
 
 pub struct App {
@@ -228,20 +227,9 @@ impl App {
         detect_lang(&format!("accept-language: {}", req.header("accept-language").unwrap_or("")), None)
     }
 
-    fn theme(&self, req: &Request) -> Theme {
-        if let Some(t) = req.cookie(THEME_COOKIE).and_then(|v| Theme::from_code(&v)) {
-            return t;
-        }
-        match req.header("sec-ch-prefers-color-scheme") {
-            Some("light") => Theme::Paper,
-            _ => Theme::Obsidian,
-        }
-    }
-
     fn chrome<'a>(&'a self, req: &'a Request, lang: Lang, profile: &'a Profile, owner: bool) -> Chrome<'a> {
         Chrome {
             lang,
-            theme: self.theme(req),
             path: &req.path,
             profile,
             owner,

@@ -1,25 +1,9 @@
 /* Minimal progressive enhancement (~1 KB gzip). Everything works without it:
-   navigation, search and forms are plain HTTP; the theme is a server cookie. */
+   navigation, search and forms are plain HTTP. */
 (function () {
   "use strict";
-  var doc = document.documentElement;
-  var root = doc;
 
-  /* --- theme toggle, persisted in a cookie so the server can pre-render it --- */
-  function setTheme(next) {
-    root.dataset.theme = next;
-    document.cookie = "rz_theme=" + next + ";path=/;max-age=31536000;samesite=lax";
-    var label = document.querySelector("[data-theme-label]");
-    if (label) label.textContent = next === "obsidian" ? "Paper" : "Obsidian";
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = next === "obsidian" ? "#0c0c0d" : "#faf8f4";
-  }
   document.addEventListener("click", function (e) {
-    var btn = e.target.closest("[data-theme-toggle]");
-    if (btn) {
-      setTheme(root.dataset.theme === "obsidian" ? "paper" : "obsidian");
-      return;
-    }
     /* --- copy code blocks --- */
     var copy = e.target.closest("[data-copy-btn]");
     if (copy) {

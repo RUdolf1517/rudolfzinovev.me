@@ -6,35 +6,33 @@
 
 :root {
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --text: 720px;
   --page: 960px;
   --margin-note: 230px;
   --gap: clamp(20px, 5vw, 48px);
   --fade: 180ms;
-}
 
-:root[data-theme="obsidian"] {
-  --bg: #0c0c0d;
-  --ink: #eae6df;
-  --ink-2: #c3bfb6;
-  --muted: #86817a;
-  --line: #232326;
-  --line-2: #36363b;
-  --accent: #c8994f;
-  --mark: rgba(200, 153, 79, 0.14);
-}
+  /* Paper. One tint, no switch: the sheet is always warm, slightly yellowed,
+     and the text sits on it like ink rather than like UI on a screen. */
+  --paper: #f2ead9;
+  --paper-hi: #f7f1e4;
+  --paper-lo: #e9dfca;
+  --ink: #1d1a14;
+  --ink-2: #453f33;
+  --muted: #7a705d;
+  --line: #d9ccb2;
+  --line-2: #c4b394;
+  --accent: #8b4a1c;
+  --mark: rgba(139, 74, 28, 0.14);
+  --danger: #a53f28;
+  --deckle: rgba(120, 96, 60, 0.10);
 
-:root[data-theme="paper"] {
-  --bg: #faf8f4;
-  --ink: #17150f;
-  --ink-2: #423e36;
-  --muted: #6f6a60;
-  --line: #e3ded4;
-  --line-2: #cdc7bb;
-  --accent: #98511f;
-  --mark: rgba(152, 81, 31, 0.12);
+  /* Fibre and fleck: tiny repeating gradients that read as paper grain at
+     100% zoom and disappear completely in print. */
+  --grain:
+    repeating-linear-gradient(90deg, var(--deckle) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, var(--deckle) 0 1px, transparent 1px 4px);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -46,7 +44,9 @@ html {
 
 body.page {
   margin: 0;
-  background: var(--bg);
+  background-color: var(--paper-lo);
+  /* The table the sheet lies on: a faint vignette towards the edges. */
+  background-image: radial-gradient(120% 80% at 50% 0%, rgba(255, 250, 238, 0.55), transparent 60%);
   color: var(--ink);
   font-family: var(--serif);
   font-size: 17px;
@@ -64,7 +64,7 @@ a { color: inherit; text-decoration: none; }
   left: -9999px;
   top: 6px;
   padding: 6px 10px;
-  background: var(--bg);
+  background: var(--paper-hi);
   border: 1px solid var(--line-2);
   font-family: var(--mono);
   font-size: 12px;
@@ -74,7 +74,9 @@ a { color: inherit; text-decoration: none; }
 /* ------------------------------------------------------- running head */
 
 .run {
-  border-bottom: 1px solid var(--line);
+  background-color: var(--paper-lo);
+  background-image: radial-gradient(120% 100% at 50% 0%, rgba(255, 250, 238, 0.5), transparent 70%);
+  border-bottom: 1px solid rgba(163, 136, 92, 0.28);
   font-family: var(--mono);
   font-size: 11.5px;
   letter-spacing: 0.07em;
@@ -147,10 +149,39 @@ a { color: inherit; text-decoration: none; }
 
 /* --------------------------------------------------------------- page */
 
+/* The sheet itself: a single column of paper with grain, foxing and a
+   deckle-soft edge. It is the only large light surface on the page. */
 .shell {
   max-width: var(--page);
   margin: 0 auto;
   padding: clamp(44px, 8vw, 88px) var(--gap) clamp(64px, 10vw, 110px);
+  background-color: var(--paper);
+  background-image:
+    var(--grain),
+    radial-gradient(90% 60% at 18% 4%, rgba(255, 252, 243, 0.85), transparent 55%),
+    radial-gradient(70% 50% at 88% 92%, rgba(196, 168, 120, 0.16), transparent 60%),
+    radial-gradient(40% 30% at 72% 22%, rgba(214, 190, 146, 0.10), transparent 70%),
+    repeating-linear-gradient(0deg, transparent 0 27px, rgba(139, 110, 68, 0.022) 27px 28px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.55) inset,
+    0 0 0 1px rgba(163, 136, 92, 0.22),
+    0 18px 50px -28px rgba(74, 56, 30, 0.45),
+    0 2px 6px rgba(74, 56, 30, 0.10);
+}
+
+/* Margin rule: a hairline down the outer edge of the text block, the way a
+   printed page marks its gutter. Hidden on narrow screens. */
+@media (min-width: 1180px) {
+  .shell {
+    position: relative;
+    background-image:
+      linear-gradient(90deg, transparent 0 calc(100% - var(--margin-note) - 92px), var(--line) calc(100% - var(--margin-note) - 92px) calc(100% - var(--margin-note) - 91px), transparent calc(100% - var(--margin-note) - 91px)),
+      var(--grain),
+      radial-gradient(90% 60% at 18% 4%, rgba(255, 252, 243, 0.85), transparent 55%),
+      radial-gradient(70% 50% at 88% 92%, rgba(196, 168, 120, 0.16), transparent 60%),
+      radial-gradient(40% 30% at 72% 22%, rgba(214, 190, 146, 0.10), transparent 70%),
+      repeating-linear-gradient(0deg, transparent 0 27px, rgba(139, 110, 68, 0.022) 27px 28px);
+  }
 }
 
 /* title page ------------------------------------------------------------ */
@@ -738,7 +769,7 @@ select { cursor: pointer; }
   transition: border-color var(--fade), color var(--fade), background var(--fade);
 }
 .btn:hover { border-color: var(--ink); }
-.btn-solid { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.btn-solid { background: var(--ink); border-color: var(--ink); color: var(--paper-hi); }
 .btn-solid:hover { background: var(--accent); border-color: var(--accent); }
 .btn-wide { width: 100%; text-align: center; }
 
@@ -771,7 +802,7 @@ select { cursor: pointer; }
 .alert {
   margin: 16px 0;
   padding-left: 12px;
-  border-left: 2px solid #c0563f;
+  border-left: 2px solid var(--danger);
   font-size: 14.5px;
   color: var(--ink-2);
 }
@@ -795,7 +826,7 @@ select { cursor: pointer; }
   border-bottom: 1px solid transparent;
 }
 .link-btn:hover { color: var(--ink); border-bottom-color: var(--line-2); }
-.link-btn.danger:hover { color: #c0563f; border-bottom-color: #c0563f; }
+.link-btn.danger:hover { color: var(--danger); border-bottom-color: var(--danger); }
 
 /* ------------------------------------------------------------------ login */
 
@@ -953,8 +984,7 @@ select { cursor: pointer; }
 /* ----------------------------------------------------------------- footer */
 
 .foot {
-  border-top: 1px solid var(--line);
-  padding: 26px var(--gap) 40px;
+  padding: 8px var(--gap) 44px;
 }
 .foot-inner {
   max-width: var(--page);
@@ -1021,6 +1051,12 @@ select { cursor: pointer; }
 
 @media print {
   .run, .foot, .toc, .article-foot, .progress { display: none; }
-  body.page { background: #fff; color: #000; font-size: 11pt; }
+  body.page, .shell {
+    background: #fff;
+    color: #000;
+    box-shadow: none;
+    font-size: 11pt;
+  }
   .prose { max-width: none; }
+  .note { float: none; margin: 12px 0; }
 }

@@ -1,32 +1,8 @@
-//! Bilingual localization (RU + EN), UTC date formatting and theme preference.
+//! Bilingual localization (RU + EN) and UTC date formatting.
 //! Every UI string lives here as a static struct so rendering never allocates
 //! translation strings.
 
 pub use crate::models::Lang;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Theme {
-    Obsidian,
-    Paper,
-}
-
-impl Theme {
-    pub fn from_code(s: &str) -> Option<Theme> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "obsidian" | "dark" => Some(Theme::Obsidian),
-            "paper" | "light" => Some(Theme::Paper),
-            _ => None,
-        }
-    }
-
-    pub fn code(self) -> &'static str {
-        match self {
-            Theme::Obsidian => "obsidian",
-            Theme::Paper => "paper",
-        }
-    }
-
-}
 
 /// All user-visible chrome strings. The dictionary is deliberately complete for
 /// both languages even where a given template does not use every key.
@@ -40,9 +16,6 @@ pub struct T {
     pub nav_rss: &'static str,
     pub skip_link: &'static str,
     pub lang_switch: &'static str,
-    pub theme_toggle: &'static str,
-    pub theme_dark: &'static str,
-    pub theme_light: &'static str,
 
     pub hero_kicker: &'static str,
     pub hero_cta_articles: &'static str,
@@ -162,9 +135,6 @@ pub static RU: T = T {
     nav_rss: "RSS",
     skip_link: "Перейти к содержимому",
     lang_switch: "Сменить язык",
-    theme_toggle: "Сменить тему",
-    theme_dark: "Обсидиан",
-    theme_light: "Бумага",
 
     hero_kicker: "инженер-программист",
     hero_cta_articles: "Читать статьи",
@@ -284,9 +254,6 @@ pub static EN: T = T {
     nav_rss: "RSS",
     skip_link: "Skip to content",
     lang_switch: "Switch language",
-    theme_toggle: "Toggle theme",
-    theme_dark: "Obsidian",
-    theme_light: "Paper",
 
     hero_kicker: "software engineer",
     hero_cta_articles: "Read the articles",

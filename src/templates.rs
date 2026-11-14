@@ -1,7 +1,7 @@
 //! Server-side HTML templates. No template engine, no runtime, no external
 //! requests: CSS and JS are inlined into the document, icons are data URIs.
 
-use crate::i18n::{self, Lang, Theme, t};
+use crate::i18n::{self, Lang, t};
 use crate::markdown::{html_escape, render_markdown};
 use crate::models::{Article, BackupStats, Profile, SessionInfo, Telemetry};
 
@@ -45,7 +45,6 @@ fn fmt_num(n: i64) -> String {
 
 pub struct Chrome<'a> {
     pub lang: Lang,
-    pub theme: Theme,
     pub path: &'a str,
     pub profile: &'a Profile,
     pub owner: bool,
@@ -100,13 +99,11 @@ fn head(chrome: &Chrome<'_>, title: &str, description: &str, noindex: bool) -> S
     let mut h = String::with_capacity(4096);
     h.push_str("<!doctype html>\n<html lang=\"");
     h.push_str(chrome.lang.code());
-    h.push_str("\" data-theme=\"");
-    h.push_str(chrome.theme.code());
     h.push_str("\">\n<head>\n<meta charset=\"utf-8\">\n");
     h.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n");
     w!(h, "<title>{}</title>\n", esc(title));
     w!(h, "<meta name=\"description\" content=\"{}\">\n", esc(description));
-    w!(h, "<meta name=\"theme-color\" content=\"{}\">\n", if chrome.theme == Theme::Obsidian { "#0c0c0d" } else { "#faf8f4" });
+    h.push_str("<meta name=\"theme-color\" content=\"#f2ead9\">\n");
     if noindex {
         h.push_str("<meta name=\"robots\" content=\"noindex,nofollow\">\n");
     }
@@ -173,16 +170,6 @@ fn header(chrome: &Chrome<'_>) -> String {
         alt.code(),
         tr.lang_switch,
         alt.label()
-    );
-    w!(
-        h,
-        "<button class=\"tool\" type=\"button\" data-theme-toggle title=\"{}\" aria-label=\"{}\"><span data-theme-label>{}</span></button>",
-        tr.theme_toggle,
-        tr.theme_toggle,
-        match chrome.theme {
-            Theme::Obsidian => tr.theme_light,
-            Theme::Paper => tr.theme_dark,
-        }
     );
     if chrome.owner {
         w!(h, "<a class=\"tool tool-accent\" href=\"/cabinet\">{}</a>", tr.nav_cabinet);
@@ -1332,7 +1319,6 @@ mod tests {
         });
         Chrome {
             lang,
-            theme: Theme::Obsidian,
             path: "/",
             profile: p,
             owner: false,
@@ -1349,7 +1335,10 @@ mod tests {
         assert!(!html.contains("data-render-us"));
         assert!(!html.contains("ticker"));
         assert!(!html.contains("SPEC //"));
-        assert!(html.contains("data-theme=\"obsidian\""));
+        // No theme machinery at all: one paper, no switches.
+        assert!(!html.contains("data-theme"));
+        assert!(!html.contains("theme-toggle"));
+        assert!(!html.contains("rz_theme"));
     }
 
     #[test]
