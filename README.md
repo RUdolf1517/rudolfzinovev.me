@@ -249,6 +249,7 @@ sudo ./deploy/install-vps.sh          # идемпотентно
   `MemoryDenyWriteExecute`, `SystemCallFilter`, запись только в `data/`;
 - `deploy/Caddyfile` — автоматический TLS, HTTP/2 + HTTP/3, health-check;
 - `deploy/nginx.conf` — альтернатива с certbot;
+- `deploy/pull-and-run.fish` — локальный запуск на маке одной командой;
 - `.env.example` — все переменные с комментариями.
 
 ### Вариант 2 — Docker
@@ -260,6 +261,37 @@ docker compose up -d --build
 
 Мультистейдж на `rust:1-alpine` → `alpine:3.20`, `read_only`, `cap_drop: ALL`,
 healthcheck на `/healthz`, данные в `./data`.
+
+### Локальный запуск на маке (fish)
+
+Одна команда: pull ветки → сборка релиза → освобождение порта → сервер →
+ожидание `/healthz` → браузер.
+
+```fish
+./deploy/pull-and-run.fish          # текущая ветка, порт 8080, http://127.0.0.1:8080
+./deploy/pull-and-run.fish -b main  # взять другую ветку (дерево должно быть чистым)
+```
+
+Полезные флаги: `-p 9090` порт, `-n` без сборки (только перезапуск), `-s` сид
+демо-данных, `-o ~/rz` свой каталог данных, `-d` в фоне без ожидания Ctrl-C,
+`-k` упасть, если порт уже занят, `-h` справка.
+
+Сервер слушает **только** `127.0.0.1` — снаружи машины он не виден, поэтому
+локальный запуск не конфликтует с nginx на VPS. Пароль владельца берётся из
+`RZ_PASSWORD`, затем из `.env`, затем из `data/dev-password` (создаётся один
+раз, режим 0600) — печатается в конце. Пароль передаётся серверу через
+окружение, а не через argv, чтобы не светиться в `ps`.
+
+На macOS нужен Homebrew: скрипт сам поставит `sqlite` и `openssl@3`, если их нет,
+и выставит `LIBRARY_PATH`/`PKG_CONFIG_PATH` — без правки `RUSTFLAGS`, чтобы не
+ломать кэш сборки.
+
+Перед первым запуском стоит проверить синтаксис — скрипт написан без доступа к
+fish-интерпретатору:
+
+```fish
+fish -n deploy/pull-and-run.fish && ./deploy/pull-and-run.fish
+```
 
 ### Обновление
 
@@ -306,7 +338,7 @@ src/
   crypto.rs     FFI: OpenSSL (PBKDF2, SHA-256, CSPRNG) и zlib (gzip)
   sqlite.rs     FFI: libsqlite3 (prepared statements, WAL)
 assets/         style.css (инлайн), app.js (< 2 КБ gzip), favicon.svg
-deploy/         systemd, Caddyfile, nginx.conf, install-vps.sh
+deploy/         systemd, Caddyfile, nginx.conf, install-vps.sh, pull-and-run.fish
 ```
 
 ---
