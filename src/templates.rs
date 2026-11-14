@@ -217,6 +217,28 @@ fn layout(chrome: &Chrome<'_>, title: &str, description: &str, body: &str) -> St
 
 // ------------------------------------------------------------------- home
 
+/// Year of an entry's date, used to break the ledger into catalogue blocks.
+fn year_of(a: &Article) -> String {
+    a.date_iso().get(..4).unwrap_or("").to_string()
+}
+
+/// Ledger markup for a list of entries, with a year rule between blocks.
+fn ledger(chrome: &Chrome<'_>, articles: &[Article]) -> String {
+    let mut h = String::with_capacity(articles.len() * 320);
+    h.push_str("<ol class=\"ledger\">");
+    let mut last_year: Option<String> = None;
+    for a in articles {
+        let y = year_of(a);
+        if last_year.as_deref() != Some(y.as_str()) {
+            w!(h, "<li class=\"year-break\">{}</li>", esc(&y));
+            last_year = Some(y);
+        }
+        h.push_str(&article_row(chrome, a));
+    }
+    h.push_str("</ol>");
+    h
+}
+
 /// One ledger line: catalogue number, title, dotted leader, date.
 fn article_row(chrome: &Chrome<'_>, a: &Article) -> String {
     let tr = chrome.t();
@@ -315,11 +337,7 @@ pub fn articles_index(
     if articles.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", if query.is_some() { tr.search_empty } else { tr.empty_state });
     } else {
-        b.push_str("<ol class=\"ledger\">");
-        for a in articles {
-            b.push_str(&article_row(chrome, a));
-        }
-        b.push_str("</ol>");
+        b.push_str(&ledger(chrome, articles));
         if query.is_some() {
             w!(
                 b,
@@ -399,11 +417,7 @@ pub fn home(
     if latests.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
     } else {
-        b.push_str("<ol class=\"ledger\">");
-        for a in latests {
-            b.push_str(&article_row(chrome, a));
-        }
-        b.push_str("</ol>");
+        b.push_str(&ledger(chrome, latests));
     }
     w!(
         b,
@@ -475,32 +489,38 @@ pub fn article_page(
         tr.nav_articles
     );
 
+    // One catalogue line: entry number · date · reading time · revision.
+    b.push_str("<p class=\"chapter-no\">");
     w!(
         b,
-        "<p class=\"chapter-no\">{}{}</p>",
+        "<span class=\"no\">{}{}</span>",
         match chrome.lang {
             Lang::Ru => "запись",
             Lang::En => "entry",
         },
         format!(" {}", catalogue_no(article.id))
     );
-    w!(b, "<h1 class=\"article-title\">{}</h1>\n", esc(&article.title));
-    if !article.summary.is_empty() {
-        w!(b, "<p class=\"article-sum\">{}</p>\n", esc(&article.summary));
-    }
-
-    b.push_str("<div class=\"chapter-meta\">");
+    w!(b, "<span class=\"sep\" aria-hidden=\"true\">·</span>");
     w!(
         b,
         "<time datetime=\"{}\">{}</time>",
         article.date_iso(),
         article.date_iso()
     );
+    w!(b, "<span class=\"sep\" aria-hidden=\"true\">·</span>");
     w!(b, "<span>{} {}</span>", article.reading_time(), tr.min_short);
     if article.updated_at > article.published_at + 60 {
+        w!(b, "<span class=\"sep\" aria-hidden=\"true\">·</span>");
         w!(b, "<span>{} {}</span>", tr.updated_on, article.edit_date_iso());
     }
-    b.push_str("<span class=\"tags\">");
+    b.push_str("</p>\n");
+
+    w!(b, "<h1 class=\"article-title\">{}</h1>\n", esc(&article.title));
+    if !article.summary.is_empty() {
+        w!(b, "<p class=\"article-sum\">{}</p>\n", esc(&article.summary));
+    }
+
+    b.push_str("<div class=\"chapter-tags\">");
     for (tag, slug) in article.tag_list().iter().zip(article.tag_slugs()) {
         w!(
             b,
@@ -510,7 +530,6 @@ pub fn article_page(
             esc(tag)
         );
     }
-    b.push_str("</span>");
     if let Some(other) = other {
         w!(
             b,
@@ -523,27 +542,11 @@ pub fn article_page(
     }
     b.push_str("</div>\n");
 
-    // Contents, set like a book's table of contents with dotted leaders.
-    if !rendered.toc.is_empty() {
-        b.push_str("<nav class=\"toc\" aria-label=\"Contents\">");
-        w!(b, "<h2 class=\"sec-label\">{}</h2>", tr.toc);
-        b.push_str("<ol>");
-        for (i, item) in rendered.toc.iter().enumerate() {
-            w!(
-                b,
-                "<li class=\"toc-l{}\"><a href=\"#{}\"><span class=\"t\">{}</span><span class=\"d\" aria-hidden=\"true\"></span><span class=\"n\">{}</span></a></li>",
-                item.level,
-                esc(&item.id),
-                esc(&item.title),
-                index_no(i)
-            );
-        }
-        b.push_str("</ol></nav>\n");
-    }
-
+    b.push_str("<div class=\"chapter-flow\">");
     b.push_str("<div class=\"prose\">");
     b.push_str(&rendered.html);
     b.push_str("</div>\n");
+    w!(b, "<p class=\"finis\" aria-hidden=\"true\">❦</p>");
 
     b.push_str("<footer class=\"article-foot\">");
     w!(
@@ -559,16 +562,47 @@ pub fn article_page(
         if chrome.lang == Lang::Ru { "в каталоге" } else { "in the catalogue" }
     );
     w!(b, "<a href=\"{}/articles\">{}</a>", chrome.lang.prefix(), tr.back_to_articles);
-    b.push_str("</footer>\n</article>\n");
+    b.push_str("</footer>\n");
+    b.push_str("</div>\n");
 
+    // Contents wait in the margin, not in the way of the first paragraph.
+    if !rendered.toc.is_empty() {
+        b.push_str("<aside class=\"chapter-aside\">");
+        b.push_str("<div class=\"toc\">");
+        w!(b, "<h2 class=\"sec-label\">{}</h2>", tr.toc);
+        b.push_str("<ol>");
+        for (i, item) in rendered.toc.iter().enumerate() {
+            w!(
+                b,
+                "<li class=\"toc-l{}\"><a href=\"#{}\"><span class=\"t\">{}</span><span class=\"d\" aria-hidden=\"true\"></span><span class=\"n\">{}</span></a></li>",
+                item.level,
+                esc(&item.id),
+                esc(&item.title),
+                index_no(i)
+            );
+        }
+        b.push_str("</ol></div></aside>\n");
+    }
+    b.push_str("</article>\n");
+    b.push_str("<footer class=\"article-foot\">");
+    w!(
+        b,
+        "<span>{} {}</span>",
+        article.body_md.split_whitespace().count(),
+        if chrome.lang == Lang::Ru { "слов" } else { "words" }
+    );
+    w!(
+        b,
+        "<span>{} {}</span>",
+        catalogue_no(article.id),
+        if chrome.lang == Lang::Ru { "в каталоге" } else { "in the catalogue" }
+    );
+    w!(b, "<a href=\"{}/articles\">{}</a>", chrome.lang.prefix(), tr.back_to_articles);
     if !related.is_empty() {
         b.push_str("<section class=\"section\">\n");
         w!(b, "<h2 class=\"sec-label\">{}</h2>", tr.related);
-        b.push_str("<ol class=\"ledger\">");
-        for a in related {
-            b.push_str(&article_row(chrome, a));
-        }
-        b.push_str("</ol></section>\n");
+        b.push_str(&ledger(chrome, related));
+        b.push_str("</section>\n");
     }
 
     let desc = if article.summary.is_empty() {
