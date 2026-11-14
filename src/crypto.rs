@@ -73,11 +73,17 @@ pub fn random_token_hex(byte_len: usize) -> String {
 }
 
 pub fn sha256_hex(data: &[u8]) -> String {
+    hex_encode(&sha256_bytes(data))
+}
+
+/// Raw 32-byte digest, for callers that need base64 (CSP script hashes) or
+/// truncation rather than hex text.
+pub fn sha256_bytes(data: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     unsafe {
         SHA256(data.as_ptr(), data.len(), out.as_mut_ptr());
     }
-    hex_encode(&out)
+    out
 }
 
 pub fn hash_password(password: &str) -> String {
