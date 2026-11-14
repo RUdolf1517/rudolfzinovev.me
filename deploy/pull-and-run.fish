@@ -109,15 +109,15 @@ set -g root "$HOME/rudolfzinovev.me"
 if set -q _flag_t; and test -n "$_flag_t"
     set root $_flag_t
 end
-string match -q '/*' -- $root; or set root (pwd)/$root
+string match -q '/*' -- $root; or set root "$PWD/$root"
 # Хвостовой слэш ломает сравнения путей — убираем.
-set root (string replace -r '/+$' '' -- $root)
+set root (string replace -r '/+$' '' -- "$root")
 test -n "$root"; or set root /
 
 set -g data "$root/data"
 if set -q _flag_o; and test -n "$_flag_o"
     set data $_flag_o
-    string match -q '/*' -- $data; or set data (pwd)/$data
+    string match -q '/*' -- $data; or set data "$PWD/$data"
     mkdir -p -- $data; or die "не смог создать $data"
 end
 
