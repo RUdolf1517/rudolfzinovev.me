@@ -103,7 +103,7 @@ fn head(chrome: &Chrome<'_>, title: &str, description: &str, noindex: bool) -> S
     h.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n");
     w!(h, "<title>{}</title>\n", esc(title));
     w!(h, "<meta name=\"description\" content=\"{}\">\n", esc(description));
-    h.push_str("<meta name=\"theme-color\" content=\"#f2ead9\">\n");
+    h.push_str("<meta name=\"theme-color\" content=\"#f6f0e1\">\n");
     if noindex {
         h.push_str("<meta name=\"robots\" content=\"noindex,nofollow\">\n");
     }
