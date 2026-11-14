@@ -13,14 +13,13 @@
   --gap: clamp(20px, 5vw, 48px);
   --fade: 180ms;
 
-  /* One warm tint, nothing else: just a slightly yellowed background so the
-     page reads softer than pure white. */
-  --paper: #f6f0e1;
+  /* Barely warm: almost white, with just enough yellow to take the glare off. */
+  --paper: #fcfbf7;
   --ink: #1d1a14;
   --ink-2: #453f33;
   --muted: #7a705d;
-  --line: #ddd1b8;
-  --line-2: #c8b795;
+  --line: #e9e5db;
+  --line-2: #d8d2c4;
   --accent: #8b4a1c;
   --mark: rgba(139, 74, 28, 0.14);
   --danger: #a53f28;
