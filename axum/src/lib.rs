@@ -16,6 +16,10 @@ pub mod markdown;
 pub mod models;
 #[path = "../../src/sqlite.rs"]
 pub mod sqlite;
+#[path = "../../src/json.rs"]
+pub mod json;
+#[path = "../../src/github.rs"]
+pub mod github;
 #[path = "../../src/db.rs"]
 pub mod db;
 #[path = "../../src/templates.rs"]

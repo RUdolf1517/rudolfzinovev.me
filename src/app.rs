@@ -9,7 +9,11 @@ use crate::crypto;
 use crate::db::{ArticleFilter, NewArticle, Store};
 use crate::http::{self, RateLimiter, Request, Response};
 use crate::i18n::{self, Lang, t};
-use crate::models::{Article, BackupStats, Kind, Profile, ViewRecord, detect_lang, slug_of};
+use crate::github;
+use crate::models::{
+    Article, BackupStats, Kind, LogKind, Profile, ProjectNote, RepoLink, ViewRecord, detect_lang,
+    slug_of,
+};
 use crate::templates::{self, Chrome};
 
 const SESSION_COOKIE: &str = "rz_session";
@@ -487,9 +491,192 @@ impl App {
         // public page so the HTML stays byte-stable for ETag revalidation.
         let _ = self.store.increment_views(article.id);
         let profile = self.profile_now();
-        let chrome = self.chrome(req, lang, &profile, self.is_owner(req));
-        let html = templates::entry_page(&chrome, &article, other.as_ref(), &related);
+        let owner = self.is_owner(req);
+        let chrome = self.chrome(req, lang, &profile, owner);
+        let html = if kind == Kind::Project {
+            // A stale snapshot is refreshed in the background: the page must not
+            // wait for the network, and an unreachable GitHub must not 500.
+            self.maybe_refresh_repo(article.id);
+            let link = self.store.repo_link(article.id).ok().flatten();
+            let events = if link.as_ref().map(RepoLink::is_linked).unwrap_or(false) {
+                self.store.repo_events(article.id, 24).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let notes = self
+                .store
+                .project_notes(article.id, lang.code(), owner)
+                .unwrap_or_default();
+            let view = templates::ProjectView {
+                link: link.as_ref(),
+                events: &events,
+                notes: &notes,
+            };
+            templates::entry_page_with(&chrome, &article, other.as_ref(), &related, Some(&view))
+        } else {
+            templates::entry_page_with(&chrome, &article, other.as_ref(), &related, None)
+        };
         Response::html(200, html)
+    }
+
+    /// Refreshes a project's repository snapshot when the cached copy is older
+    /// than the refresh interval. Runs inline (the API is one small request and
+    /// the site is single-owner), but every failure is recorded, never raised.
+    fn maybe_refresh_repo(&self, project_id: i64) {
+        let Ok(Some(link)) = self.store.repo_link(project_id) else {
+            return;
+        };
+        if !link.is_linked() || !github::refresh_due(link.fetched_at, false) {
+            return;
+        }
+        // Failure is already recorded on the row; the page keeps the old snapshot.
+        let _ = self.refresh_repo(project_id, &link.repo);
+    }
+
+    /// Force-refreshes one project's repository. Returns the error code on
+    /// failure; the previous snapshot stays in place either way.
+    fn refresh_repo(&self, project_id: i64, repo: &str) -> Result<(), String> {
+        match github::fetch(repo) {
+            Ok(fetched) => {
+                self.store
+                    .save_repo_snapshot(project_id, &fetched.repo, &fetched.events, i18n::now_unix())
+                    .map_err(|e| e.to_string())
+            }
+            Err(err) => {
+                self.store
+                    .mark_repo_error(project_id, err.code())
+                    .ok();
+                Err(err.code().to_string())
+            }
+        }
+    }
+
+    // ------------------------------------------------- project cabinet pages
+
+    fn cabinet_project_page(&self, req: &Request, article: &Article, flash: Option<&str>, error: Option<&str>) -> Response {
+        let profile = self.profile_now();
+        let link = self.store.repo_link(article.id).ok().flatten();
+        let events = if link.as_ref().map(RepoLink::is_linked).unwrap_or(false) {
+            self.store.repo_events(article.id, 24).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let counts = self.store.project_note_counts(article.id).unwrap_or((0, 0, 0));
+        let chrome = self.chrome(req, Lang::Ru, &profile, true);
+        let flash = flash.map(|f| f.to_string()).or_else(|| self.flash(req));
+        Response::html(
+            200,
+            templates::cabinet_project(
+                &chrome,
+                article,
+                link.as_ref(),
+                &events,
+                counts,
+                flash.as_deref(),
+                error,
+            ),
+        )
+    }
+
+    fn cabinet_project_link_save(&self, req: &Request, article: &Article) -> Response {
+        let form = req.form();
+        let raw = form.get("repo").map(|s| s.trim().to_string()).unwrap_or_default();
+        let show_issues = form.get("show_issues").map(|v| v == "1").unwrap_or(false);
+        if raw.is_empty() {
+            if let Err(err) = self.store.unlink_repo(article.id) {
+                return self.cabinet_project_page(req, article, None, Some(&err));
+            }
+            return Response::redirect(&format!("/cabinet/projects/{}?msg=unlinked", article.id));
+        }
+        let Some(repo) = github::normalise_repo(&raw) else {
+            return self.cabinet_project_page(
+                req,
+                article,
+                None,
+                Some("Expected owner/name, for example RUdolf1517/tzim."),
+            );
+        };
+        if let Err(err) = self.store.link_repo(article.id, &repo, show_issues) {
+            return self.cabinet_project_page(req, article, None, Some(&err));
+        }
+        // Fetch immediately so the owner sees whether the reference resolves.
+        match self.refresh_repo(article.id, &repo) {
+            Ok(()) => Response::redirect(&format!("/cabinet/projects/{}?msg=linked", article.id)),
+            Err(code) => {
+                let msg = match code.as_str() {
+                    "not-found" => "GitHub says this repository does not exist (or is private).",
+                    "rate-limited" => "GitHub rate limit reached. The link is saved; retry later.",
+                    "network" => "Could not reach api.github.com. The link is saved; retry later.",
+                    _ => "GitHub returned an error. The link is saved; retry later.",
+                };
+                self.cabinet_project_page(req, article, None, Some(msg))
+            }
+        }
+    }
+
+    fn cabinet_project_note_page(
+        &self,
+        req: &Request,
+        article: &Article,
+        note: Option<&ProjectNote>,
+        errors: &[String],
+    ) -> Response {
+        let profile = self.profile_now();
+        let chrome = self.chrome(req, Lang::Ru, &profile, true);
+        let flash = self.flash(req);
+        Response::html(
+            200,
+            templates::cabinet_project_note(&chrome, article, note, flash.as_deref(), errors),
+        )
+    }
+
+    fn cabinet_project_note_save(&self, req: &Request, article: &Article, note_id: Option<i64>) -> Response {
+        let form = req.form();
+        let get = |k: &str| form.get(k).cloned().unwrap_or_default();
+        let title = http::truncate_chars(get("title").trim(), 180);
+        if title.is_empty() {
+            let existing = note_id.and_then(|id| self.store.project_note(id).ok().flatten());
+            return self.cabinet_project_note_page(
+                req,
+                article,
+                existing.as_ref(),
+                &["Title is required.".to_string()],
+            );
+        }
+        let body_md = get("body_md");
+        let mut note = match note_id.and_then(|id| self.store.project_note(id).ok().flatten()) {
+            Some(n) => n,
+            None => ProjectNote {
+                id: 0,
+                project_id: article.id,
+                lang: "ru".into(),
+                kind: LogKind::Note.code().into(),
+                title: String::new(),
+                body_md: String::new(),
+                log_date: 0,
+                public: true,
+                created_at: 0,
+                updated_at: 0,
+            },
+        };
+        // A note belongs to the project in the URL, never to whatever the form says.
+        note.project_id = article.id;
+        note.title = title;
+        note.body_md = body_md;
+        note.kind = LogKind::from_code(&get("kind")).code().to_string();
+        note.lang = if get("lang") == "en" { "en".into() } else { "ru".into() };
+        note.public = get("public") != "0";
+        note.log_date = parse_date_input(&get("date")).unwrap_or_else(i18n::now_unix);
+
+        let outcome = if note.id > 0 {
+            self.store.update_project_note(&note)
+        } else {
+            self.store.create_project_note(&note).map(|_| ())
+        };
+        match outcome {
+            Ok(()) => Response::redirect(&format!("/cabinet/projects/{}?msg=saved", article.id)),
+            Err(err) => self.cabinet_project_note_page(req, article, None, &[err]),
+        }
     }
 
     fn not_found(&self, req: &Request, lang: Lang) -> Response {
@@ -588,6 +775,7 @@ impl App {
             ("GET", "/cabinet") => return self.cabinet_overview(req),
             ("GET", "/cabinet/articles") => return self.cabinet_articles_page(req),
             ("GET", "/cabinet/articles/new") => return self.cabinet_editor_page(req, None, &[]),
+            ("GET", "/cabinet/projects") => return self.cabinet_articles_page(req),
             ("POST", "/cabinet/articles/new") => return self.cabinet_editor_save(req, None),
             ("GET", "/cabinet/profile") => return self.cabinet_profile_page(req, None),
             ("POST", "/cabinet/profile") => return self.cabinet_profile_save(req),
@@ -608,6 +796,9 @@ impl App {
                 Response::redirect("/cabinet/security?msg=revoked")
             }
             _ => {
+                if let Some(rest) = path.strip_prefix("/cabinet/projects/") {
+                    return self.cabinet_project_route(req, rest);
+                }
                 if let Some(rest) = path.strip_prefix("/cabinet/articles/") {
                     match (method, rest) {
                         ("GET", id) if !id.contains('/') => {
@@ -647,6 +838,91 @@ impl App {
                     Response::empty(404)
                 }
             }
+        }
+    }
+
+    /// `/cabinet/projects/<id>[/...]` — the GitHub binding and the journal.
+    /// Every handler here is owner-only and CSRF-checked by `cabinet_route`.
+    fn cabinet_project_route(&self, req: &Request, rest: &str) -> Response {
+        let method = req.method.as_str();
+        let mut parts = rest.split('/');
+        let Some(raw_id) = parts.next() else {
+            return Response::empty(404);
+        };
+        let Ok(project_id) = raw_id.parse::<i64>() else {
+            return Response::empty(400);
+        };
+        let Some(article) = self.store.article_by_id(project_id).ok().flatten() else {
+            return Response::empty(404);
+        };
+        if !article.is_project() {
+            // The journal and the repository belong to projects only.
+            return Response::redirect(&format!("/cabinet/articles/{}", article.id));
+        }
+        let tail: Vec<&str> = parts.filter(|p| !p.is_empty()).collect();
+
+        match (method, tail.as_slice()) {
+            ("GET", []) => self.cabinet_project_page(req, &article, None, None),
+            ("POST", ["link"]) => self.cabinet_project_link_save(req, &article),
+            ("POST", ["unlink"]) => {
+                self.store.unlink_repo(article.id).ok();
+                Response::redirect(&format!("/cabinet/projects/{}?msg=unlinked", article.id))
+            }
+            ("POST", ["refresh"]) => {
+                let link = self.store.repo_link(article.id).ok().flatten();
+                match link.filter(RepoLink::is_linked) {
+                    Some(link) => match self.refresh_repo(article.id, &link.repo) {
+                        Ok(()) => Response::redirect(&format!("/cabinet/projects/{}?msg=refreshed", article.id)),
+                        Err(code) => {
+                            let message = match code.as_str() {
+                                "not-found" => "GitHub says this repository does not exist (or is private).",
+                                "rate-limited" => "GitHub rate limit reached — the last snapshot is kept.",
+                                "network" => "Could not reach api.github.com — the last snapshot is kept.",
+                                _ => "GitHub returned an error — the last snapshot is kept.",
+                            };
+                            self.cabinet_project_page(req, &article, None, Some(message))
+                        }
+                    },
+                    None => self.cabinet_project_page(req, &article, None, Some("No repository bound.")),
+                }
+            }
+            ("GET", ["notes", "new"]) => self.cabinet_project_note_page(req, &article, None, &[]),
+            ("POST", ["notes", "new"]) => self.cabinet_project_note_save(req, &article, None),
+            ("GET", ["notes", id]) => {
+                let Ok(id) = id.parse::<i64>() else {
+                    return Response::empty(400);
+                };
+                match self.store.project_note(id).ok().flatten() {
+                    Some(note) if note.project_id == article.id => {
+                        self.cabinet_project_note_page(req, &article, Some(&note), &[])
+                    }
+                    _ => Response::empty(404),
+                }
+            }
+            ("POST", ["notes", id]) => {
+                let Ok(id) = id.parse::<i64>() else {
+                    return Response::empty(400);
+                };
+                match self.store.project_note(id).ok().flatten() {
+                    Some(note) if note.project_id == article.id => {
+                        self.cabinet_project_note_save(req, &article, Some(id))
+                    }
+                    _ => Response::empty(404),
+                }
+            }
+            ("POST", ["notes", id, "delete"]) => {
+                let Ok(id) = id.parse::<i64>() else {
+                    return Response::empty(400);
+                };
+                match self.store.project_note(id).ok().flatten() {
+                    Some(note) if note.project_id == article.id => {
+                        self.store.delete_project_note(id).ok();
+                        Response::redirect(&format!("/cabinet/projects/{}?msg=deleted", article.id))
+                    }
+                    _ => Response::empty(404),
+                }
+            }
+            _ => Response::empty(404),
         }
     }
 
@@ -1202,4 +1478,13 @@ mod tests {
         assert!(!html.contains("@@RENDER_US@@"));
         assert!(!html.contains("data-render-us"));
     }
+}
+
+/// `2026-11-14` from an `<input type="date">` → unix seconds at 00:00 UTC.
+fn parse_date_input(s: &str) -> Option<i64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    crate::github::parse_iso8601(&format!("{s}T00:00:00Z"))
 }

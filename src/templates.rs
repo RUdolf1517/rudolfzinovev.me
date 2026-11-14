@@ -4,7 +4,9 @@
 use crate::i18n::{self, Lang, t};
 use crate::models::Kind;
 use crate::markdown::{html_escape, render_markdown};
-use crate::models::{Article, BackupStats, Profile, SessionInfo, Telemetry};
+use crate::models::{
+    Article, BackupStats, LogKind, Profile, ProjectNote, RepoLink, SessionInfo, Telemetry,
+};
 
 pub const CSS: &str = include_str!("../assets/style.css");
 pub const JS: &str = include_str!("../assets/app.js");
@@ -49,6 +51,15 @@ pub struct Chrome<'a> {
     pub path: &'a str,
     pub profile: &'a Profile,
     pub owner: bool,
+}
+
+/// Everything a project page needs besides the article itself: the GitHub
+/// binding with its cached facts, the automatic timeline and the owner's own
+/// journal. These are three separate things on purpose — they are never mixed.
+pub struct ProjectView<'a> {
+    pub link: Option<&'a RepoLink>,
+    pub events: &'a [crate::github::GhEvent],
+    pub notes: &'a [ProjectNote],
 }
 
 impl Chrome<'_> {
@@ -505,11 +516,25 @@ fn split_name(name: &str) -> (String, String) {
 
 // --------------------------------------------------------------- sections
 
+#[allow(dead_code)]
 pub fn entry_page(
     chrome: &Chrome<'_>,
     article: &Article,
     other: Option<&Article>,
     related: &[Article],
+) -> String {
+    entry_page_with(chrome, article, other, related, None)
+}
+
+/// The project page adds three blocks below the body: repository facts, the
+/// automatic GitHub timeline, and the owner's journal. `view` is `None` for
+/// notes and for projects that have neither a repository nor a journal.
+pub fn entry_page_with(
+    chrome: &Chrome<'_>,
+    article: &Article,
+    other: Option<&Article>,
+    related: &[Article],
+    view: Option<&ProjectView<'_>>,
 ) -> String {
     let tr = chrome.t();
     let rendered = render_markdown(&article.body_md);
@@ -590,6 +615,9 @@ pub fn entry_page(
     b.push_str(&rendered.html);
     b.push_str("</div>\n");
     w!(b, "<p class=\"finis\" aria-hidden=\"true\">❦</p>");
+    if let Some(view) = view {
+        b.push_str(&project_sections(chrome, article, view));
+    }
 
     b.push_str("<footer class=\"article-foot\">");
     w!(
@@ -816,6 +844,7 @@ fn cabinet_nav(active: &str) -> String {
 
 pub fn cabinet_shell(chrome: &Chrome<'_>, active: &str, title: &str, body: &str, flash: Option<&str>) -> String {
     let tr = chrome.t();
+    // `true` is noindex: the cabinet must never end up in a search result.
     let mut h = head(
         chrome,
         &format!("{title} — {}", tr.cabinet),
@@ -930,6 +959,13 @@ pub fn cabinet_articles(chrome: &Chrome<'_>, articles: &[Article], flash: Option
                 next_status,
                 if a.is_published() { tr.cabinet_unpublish } else { tr.cabinet_publish }
             );
+            if a.is_project() {
+                w!(
+                    b,
+                    "<a class=\"link-btn\" href=\"/cabinet/projects/{}\">github</a>",
+                    a.id
+                );
+            }
             w!(
                 b,
                 "<form method=\"post\" action=\"/cabinet/articles/{}/delete\" class=\"inline\" data-confirm=\"{}\"><button class=\"link-btn danger\" type=\"submit\">{}</button></form>",
@@ -1077,6 +1113,13 @@ pub fn cabinet_editor(
     w!(b, "<button class=\"btn btn-solid\" type=\"submit\">{}</button>", tr.cabinet_save);
     b.push_str("</div></div></form>");
     if let Some(a) = article {
+        if a.is_project() {
+            w!(
+                b,
+                "<p class=\"panel-foot\"><a href=\"/cabinet/projects/{}\">GitHub и журнал проекта →</a></p>",
+                a.id
+            );
+        }
         b.push_str("<section class=\"panel\">");
         w!(
             b,
@@ -1434,6 +1477,119 @@ mod tests {
         assert!(!html.contains("rz_theme"));
     }
 
+    fn project_article() -> Article {
+        Article {
+            kind: "project".into(),
+            id: 42,
+            translation_key: "k".into(),
+            lang: "ru".into(),
+            slug: "tzim".into(),
+            title: "tzim".into(),
+            summary: "sum".into(),
+            body_md: "## Head\n\nbody".into(),
+            tags: "rust".into(),
+            status: "published".into(),
+            featured: false,
+            reading_minutes: 3,
+            published_at: 1_700_000_000,
+            updated_at: 1_700_000_000,
+            created_at: 1_700_000_000,
+            views: 0,
+        }
+    }
+
+    /// The whole point of the feature: generated facts and the owner's own
+    /// notes may sit on one page but must never be interleaved or styled alike.
+    #[test]
+    fn project_page_keeps_github_and_journal_apart() {
+        let a = project_article();
+        let link = RepoLink {
+            repo: "RUdolf1517/tzim".into(),
+            stars: 7,
+            language: "Rust".into(),
+            release_tag: "v0.16.1".into(),
+            release_url: "https://github.com/RUdolf1517/tzim/releases/tag/v0.16.1".into(),
+            release_at: 1_700_000_050,
+            pushed_at: 1_700_000_100,
+            fetched_at: 1_700_000_200,
+            ..Default::default()
+        };
+        let events = vec![crate::github::GhEvent {
+            kind: "commit".into(),
+            title: "brew: update formula".into(),
+            detail: "f605c2e · Rudolf".into(),
+            url: "https://github.com/RUdolf1517/tzim/commit/f605c2e".into(),
+            at: 1_700_000_100,
+        }];
+        let notes = vec![ProjectNote {
+            id: 9,
+            project_id: 42,
+            lang: "ru".into(),
+            kind: "decision".into(),
+            title: "Почему отказались от zopfli".into(),
+            body_md: "Компромисс между временем и размером.".into(),
+            log_date: 1_700_000_150,
+            public: true,
+            created_at: 0,
+            updated_at: 0,
+        }];
+        let view = ProjectView { link: Some(&link), events: &events, notes: &notes };
+        let html = entry_page_with(&chrome(Lang::Ru), &a, None, &[], Some(&view));
+
+        let repo_at = html.find("class=\"repo\"").expect("repository block");
+        let journal_at = html.find("class=\"journal\"").expect("journal block");
+        assert!(repo_at < journal_at, "the feed comes first, the notebook after");
+
+        // Different visual languages, asserted on the markup itself.
+        assert!(html.contains("<ol class=\"feed\">"));
+        assert!(html.contains("feed-kind"));
+        assert!(html.contains("journal-kind"));
+        assert!(html.contains("js-decision"));
+
+        // The generated event is inside the feed, the owner's note is not.
+        let feed = &html[repo_at..journal_at];
+        assert!(feed.contains("brew: update formula"));
+        assert!(!feed.contains("Почему отказались от zopfli"));
+        let journal = &html[journal_at..];
+        assert!(journal.contains("Почему отказались от zopfli"));
+        assert!(!journal.contains("brew: update formula"));
+        assert!(journal.contains("решение"), "the kind is named in words");
+    }
+
+    #[test]
+    fn journal_hides_private_entries_from_visitors() {
+        let a = project_article();
+        let mut note = ProjectNote {
+            id: 1,
+            project_id: 42,
+            lang: "ru".into(),
+            kind: "note".into(),
+            title: "черновик".into(),
+            body_md: "секрет".into(),
+            log_date: 1_700_000_000,
+            public: false,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let notes = vec![note.clone()];
+        let view = ProjectView { link: None, events: &[], notes: &notes };
+        let visitor = entry_page_with(&chrome(Lang::Ru), &a, None, &[], Some(&view));
+        assert!(!visitor.contains("секрет"), "a private entry never reaches a visitor");
+
+        // The owner sees it, marked as a draft.
+        let mut owner_chrome = chrome(Lang::Ru);
+        owner_chrome.owner = true;
+        let owner = entry_page_with(&owner_chrome, &a, None, &[], Some(&view));
+        assert!(owner.contains("секрет"));
+        assert!(owner.contains("черновик"));
+
+        note.public = true;
+        let notes = vec![note];
+        let view = ProjectView { link: None, events: &[], notes: &notes };
+        let visitor = entry_page_with(&chrome(Lang::Ru), &a, None, &[], Some(&view));
+        assert!(visitor.contains("секрет"));
+    }
+
     #[test]
     fn article_page_escapes_and_switches_language() {
         let a = Article {
@@ -1476,4 +1632,494 @@ mod tests {
         c2.path = "/en/articles/x";
         assert_eq!(c2.alt_lang_path(Lang::Ru), "/articles/x");
     }
+}
+
+// ------------------------------------------------------- project sections
+
+/// The two histories, kept visually apart:
+///   · «Из репозитория» — facts, machine-generated, set in the mono voice;
+///   · «Журнал» — the owner's own notes, decisions and milestones, set in the
+///     serif voice with a margin mark. They are never interleaved.
+fn project_sections(chrome: &Chrome<'_>, article: &Article, view: &ProjectView<'_>) -> String {
+    let ru = chrome.lang == Lang::Ru;
+    let mut b = String::new();
+
+    if let Some(link) = view.link.filter(|l| l.is_linked()) {
+        b.push_str("<section class=\"repo\" aria-labelledby=\"repo-h\">");
+        w!(
+            b,
+            "<h2 class=\"sec-label\" id=\"repo-h\">{}</h2>",
+            if ru { "Из репозитория" } else { "From the repository" }
+        );
+        b.push_str("<div class=\"repo-head\">");
+        let repo_url = if link.html_url.is_empty() {
+            format!("https://github.com/{}", link.repo)
+        } else {
+            link.html_url.clone()
+        };
+        w!(
+            b,
+            "<a class=\"repo-name\" href=\"{}\" rel=\"noopener\" target=\"_blank\">{}</a>",
+            esc(&repo_url),
+            esc(&link.repo)
+        );
+
+        // Facts, in the typewriter voice: numbers are facts, not prose.
+        b.push_str("<p class=\"repo-facts\">");
+        let mut facts: Vec<String> = Vec::new();
+        if link.stars > 0 {
+            facts.push(format!("★ {}", fmt_num(link.stars)));
+        }
+        if link.forks > 0 {
+            facts.push(format!("⑂ {}", fmt_num(link.forks)));
+        }
+        if !link.language.is_empty() {
+            facts.push(esc(&link.language));
+        }
+        if !link.license.is_empty() {
+            facts.push(esc(&link.license));
+        }
+        if link.archived {
+            facts.push(if ru { "архив".into() } else { "archived".to_string() });
+        }
+        if link.pushed_at > 0 {
+            facts.push(format!(
+                "{} {}",
+                if ru { "обновлён" } else { "updated" },
+                crate::i18n::format_date_utc(link.pushed_at)
+            ));
+        }
+        b.push_str(&facts.join(" · "));
+        b.push_str("</p>");
+
+        if !link.description.is_empty() {
+            w!(b, "<p class=\"repo-desc\">{}</p>", esc(&link.description));
+        }
+
+        if !link.release_tag.is_empty() {
+            b.push_str("<p class=\"repo-release\">");
+            w!(
+                b,
+                "<span class=\"repo-release-label\">{}</span> ",
+                if ru { "последний релиз" } else { "latest release" }
+            );
+            w!(
+                b,
+                "<a href=\"{}\" rel=\"noopener\" target=\"_blank\">{}</a>",
+                esc(&link.release_url),
+                esc(&link.release_tag)
+            );
+            if link.release_at > 0 {
+                w!(
+                    b,
+                    " <span class=\"dim\">· {}</span>",
+                    crate::i18n::format_date_utc(link.release_at)
+                );
+            }
+            b.push_str("</p>");
+        }
+
+        // Issues stay opt-in and only ever appear as a counter.
+        if link.issues_enabled() && link.open_issues > 0 {
+            w!(
+                b,
+                "<p class=\"repo-facts\">{} <a href=\"https://github.com/{}/issues\" rel=\"noopener\" target=\"_blank\">{}</a></p>",
+                if ru { "открытых issues:" } else { "open issues:" },
+                esc(&link.repo),
+                fmt_num(link.open_issues)
+            );
+        }
+        b.push_str("</div>");
+
+        // Automatic history: releases, commits, README — machine text, mono,
+        // dated, never written by hand.
+        if !view.events.is_empty() {
+            b.push_str("<ol class=\"feed\">");
+            for e in view.events {
+                let (label, mark) = match e.kind.as_str() {
+                    "release" => (
+                        if ru { "релиз" } else { "release" },
+                        if ru { "версия" } else { "version" },
+                    ),
+                    "readme" => (
+                        if ru { "README" } else { "README" },
+                        if ru { "документация" } else { "docs" },
+                    ),
+                    _ => (
+                        if ru { "коммит" } else { "commit" },
+                        if ru { "код" } else { "code" },
+                    ),
+                };
+                w!(
+                    b,
+                    "<li class=\"feed-item feed-{}\"><time datetime=\"{}\">{}</time>",
+                    esc(&e.kind),
+                    crate::i18n::format_date_utc(e.at),
+                    crate::i18n::format_date_utc(e.at)
+                );
+                w!(b, "<span class=\"feed-kind\">{}</span>", label);
+                if e.url.is_empty() {
+                    w!(b, "<span class=\"feed-title\">{}</span>", esc(&e.title));
+                } else {
+                    w!(
+                        b,
+                        "<a class=\"feed-title\" href=\"{}\" rel=\"noopener\" target=\"_blank\">{}</a>",
+                        esc(&e.url),
+                        esc(&e.title)
+                    );
+                }
+                if !e.detail.is_empty() && e.detail != e.title {
+                    w!(b, "<span class=\"feed-detail\">{}</span>", esc(&e.detail));
+                }
+                b.push_str("</li>");
+                let _ = mark;
+            }
+            b.push_str("</ol>");
+        }
+
+        if link.fetched_at > 0 {
+            w!(
+                b,
+                "<p class=\"repo-stamp\">{} {}</p>",
+                if ru { "снимок" } else { "snapshot" },
+                crate::i18n::format_date_utc(link.fetched_at)
+            );
+        }
+        if !link.last_error.is_empty() {
+            w!(
+                b,
+                "<p class=\"repo-stamp\">{}</p>",
+                if ru {
+                    "GitHub сейчас недоступен — показан последний снимок."
+                } else {
+                    "GitHub is unreachable right now — showing the last snapshot."
+                }
+            );
+        }
+        if chrome.owner {
+            w!(
+                b,
+                "<p class=\"repo-stamp\"><a href=\"/cabinet/projects/{}\">{}</a></p>",
+                article.id,
+                if ru { "настроить привязку →" } else { "configure this link →" }
+            );
+        }
+        b.push_str("</section>");
+    }
+
+    // The owner's journal. Deliberately a different shape from the feed above:
+    // no dates in a column, no mono typeface, a margin mark per kind.
+    if !view.notes.is_empty() {
+        b.push_str("<section class=\"journal\" aria-labelledby=\"journal-h\">");
+        w!(
+            b,
+            "<h2 class=\"sec-label\" id=\"journal-h\">{}</h2>",
+            if ru { "Журнал проекта" } else { "Project journal" }
+        );
+        for kind in LogKind::all() {
+            let group: Vec<&ProjectNote> = view
+                .notes
+                .iter()
+                .filter(|n| n.kind_enum() == kind)
+                .filter(|n| n.public || chrome.owner)
+                .collect();
+            if group.is_empty() {
+                continue;
+            }
+            w!(
+                b,
+                "<h3 class=\"journal-kind\"><span class=\"mark\" aria-hidden=\"true\">{}</span>{}</h3>",
+                kind.mark(),
+                kind.label(chrome.lang)
+            );
+            for note in group {
+                w!(
+                    b,
+                    "<article class=\"journal-item js-{}\" id=\"n{}\">",
+                    kind.code(),
+                    note.id
+                );
+                b.push_str("<header class=\"journal-head\">");
+                w!(
+                    b,
+                    "<time class=\"journal-date\" datetime=\"{}\">{}</time>",
+                    note.date_iso(),
+                    note.date_iso()
+                );
+                w!(b, "<h4 class=\"journal-title\">{}</h4>", esc(&note.title));
+                if !note.public {
+                    w!(
+                        b,
+                        "<span class=\"journal-private\">{}</span>",
+                        if ru { "черновик" } else { "private" }
+                    );
+                }
+                if chrome.owner {
+                    w!(
+                        b,
+                        "<a class=\"journal-edit\" href=\"/cabinet/projects/{}/notes/{}\">{}</a>",
+                        note.project_id,
+                        note.id,
+                        if ru { "править" } else { "edit" }
+                    );
+                }
+                b.push_str("</header>");
+                let rendered = render_markdown(&note.body_md);
+                w!(b, "<div class=\"prose journal-body\">{}</div>", rendered.html);
+                b.push_str("</article>");
+            }
+        }
+        if chrome.owner {
+            w!(
+                b,
+                "<p class=\"journal-add\"><a href=\"/cabinet/projects/{}/notes/new\">{}</a></p>",
+                article.id,
+                if ru { "+ добавить запись" } else { "+ add a note" }
+            );
+        }
+        b.push_str("</section>");
+    } else if chrome.owner {
+        w!(
+            b,
+            "<section class=\"journal\"><p class=\"journal-add\"><a href=\"/cabinet/projects/{}/notes/new\">{}</a></p></section>",
+            article.id,
+            if ru { "+ добавить запись в журнал" } else { "+ add a journal entry" }
+        );
+    }
+
+    b
+}
+
+// ------------------------------------------------- cabinet: project binding
+
+/// Where a project's GitHub link is configured. Separate from the article
+/// editor on purpose: the editor is about writing, this is about plumbing.
+pub fn cabinet_project(
+    chrome: &Chrome<'_>,
+    article: &Article,
+    link: Option<&RepoLink>,
+    events: &[crate::github::GhEvent],
+    counts: (i64, i64, i64),
+    flash: Option<&str>,
+    error: Option<&str>,
+) -> String {
+    let mut b = String::new();
+    if let Some(err) = error {
+        w!(b, "<p class=\"alert\" role=\"alert\">{}</p>", esc(err));
+    }
+    let linked = link.filter(|l| l.is_linked());
+
+    b.push_str("<section class=\"panel\">");
+    w!(
+        b,
+        "<div class=\"panel-head\"><span>{}</span><a href=\"/cabinet/articles/{}\">{} →</a></div>",
+        esc(&article.title),
+        article.id,
+        esc("entry")
+    );
+
+    if let Some(link) = linked {
+        b.push_str("<table class=\"tbl\"><tbody>");
+        let row = |k: &str, v: String| {
+            format!("<tr><th class=\"dim\">{}</th><td>{}</td></tr>", esc(k), v)
+        };
+        b.push_str(&row("Repository", esc(&link.repo)));
+        b.push_str(&row(
+            "Facts",
+            format!(
+                "★ {} · ⑂ {} · {} · {}",
+                link.stars, link.forks, esc(&link.language), esc(&link.license)
+            ),
+        ));
+        if !link.release_tag.is_empty() {
+            b.push_str(&row("Latest release", esc(&link.release_tag)));
+        }
+        b.push_str(&row(
+            "Last refresh",
+            if link.fetched_at > 0 {
+                crate::i18n::format_date_utc(link.fetched_at)
+            } else {
+                "never".to_string()
+            },
+        ));
+        if !link.last_error.is_empty() {
+            b.push_str(&row(
+                "Last error",
+                format!("<span class=\"danger\">{}</span>", esc(&link.last_error)),
+            ));
+        }
+        b.push_str(&row(
+            "Timeline",
+            format!("{} events cached", events.len()),
+        ));
+        b.push_str("</tbody></table>");
+
+        b.push_str("<div class=\"panel-actions\">");
+        w!(
+            b,
+            "<form method=\"post\" action=\"/cabinet/projects/{}/refresh\" class=\"inline\"><button class=\"btn\" type=\"submit\">Refresh now</button></form>",
+            article.id
+        );
+        w!(
+            b,
+            "<form method=\"post\" action=\"/cabinet/projects/{}/unlink\" class=\"inline\" data-confirm=\"Forget the cached snapshot for this repository?\"><button class=\"link-btn danger\" type=\"submit\">Unlink</button></form>",
+            article.id
+        );
+        b.push_str("</div>");
+    } else {
+        b.push_str("<p class=\"panel-note\">No repository bound yet. Paste <code>owner/name</code> or a GitHub URL.</p>");
+    }
+    b.push_str("</section>");
+
+    // Binding form.
+    b.push_str("<section class=\"panel\">");
+    b.push_str("<div class=\"panel-head\"><span>GitHub repository</span><span class=\"dim\">public repos only</span></div>");
+    w!(
+        b,
+        "<form method=\"post\" action=\"/cabinet/projects/{}/link\" class=\"form\">",
+        article.id
+    );
+    w!(
+        b,
+        "<label class=\"field field-full\"><span class=\"label\">Repository</span><input name=\"repo\" type=\"text\" value=\"{}\" placeholder=\"RUdolf1517/tzim\" maxlength=\"140\"></label>",
+        esc(linked.map(|l| l.repo.as_str()).unwrap_or(""))
+    );
+    w!(
+        b,
+        "<label class=\"switch\"><input type=\"checkbox\" name=\"show_issues\" value=\"1\"{}><span>Show open issues count</span></label>",
+        if linked.map(|l| l.show_issues).unwrap_or(false) {
+            " checked"
+        } else {
+            ""
+        }
+    );
+    b.push_str("<div class=\"form-actions\"><div class=\"form-actions-right\">");
+    b.push_str("<button class=\"btn btn-solid\" type=\"submit\">Save link</button>");
+    b.push_str("</div></div></form>");
+    b.push_str("<p class=\"panel-foot\">Commits, releases and README changes are fetched automatically and cached. Issues and pull requests stay off unless enabled above.</p>");
+    b.push_str("</section>");
+
+    // Journal.
+    b.push_str("<section class=\"panel\">");
+    w!(
+        b,
+        "<div class=\"panel-head\"><span>Journal</span><a href=\"/cabinet/projects/{}/notes/new\">+ add</a></div>",
+        article.id
+    );
+    w!(
+        b,
+        "<p class=\"panel-note\">Notes you write yourself: {} observations · {} decisions · {} milestones. Shown under the GitHub timeline, never mixed into it.</p>",
+        counts.0,
+        counts.1,
+        counts.2
+    );
+    b.push_str("</section>");
+
+    cabinet_shell(chrome, "projects", "Project · GitHub", &b, flash)
+}
+
+/// Create or edit one journal entry.
+pub fn cabinet_project_note(
+    chrome: &Chrome<'_>,
+    project: &Article,
+    note: Option<&ProjectNote>,
+    flash: Option<&str>,
+    errors: &[String],
+) -> String {
+    let mut b = String::new();
+    if !errors.is_empty() {
+        b.push_str("<div class=\"alert\" role=\"alert\">");
+        for e in errors {
+            w!(b, "<p class=\"alert\">{}</p>", esc(e));
+        }
+        b.push_str("</div>");
+    }
+    let (action, kind, lang, title, body, date, public) = match note {
+        Some(n) => (
+            format!("/cabinet/projects/{}/notes/{}", n.project_id, n.id),
+            n.kind.clone(),
+            n.lang.clone(),
+            n.title.clone(),
+            n.body_md.clone(),
+            crate::i18n::format_date_utc(n.log_date),
+            n.public,
+        ),
+        None => (
+            format!("/cabinet/projects/{}/notes/new", project.id),
+            "note".to_string(),
+            chrome.lang.code().to_string(),
+            String::new(),
+            String::new(),
+            crate::i18n::format_date_utc(crate::i18n::now_unix()),
+            true,
+        ),
+    };
+
+    w!(
+        b,
+        "<section class=\"panel\"><div class=\"panel-head\"><span>{}</span><a href=\"/cabinet/projects/{}\">← project</a></div>",
+        esc(&project.title),
+        project.id
+    );
+    w!(b, "<form method=\"post\" action=\"{}\" class=\"form editor\">", action);
+    b.push_str("<div class=\"form-grid\">");
+    w!(
+        b,
+        "<label class=\"field field-full\"><span class=\"label\">Title</span><input name=\"title\" type=\"text\" required value=\"{}\" maxlength=\"180\"></label>",
+        esc(&title)
+    );
+    w!(
+        b,
+        "<label class=\"field\"><span class=\"label\">Type</span><select name=\"kind\">{}</select></label>",
+        LogKind::all()
+            .iter()
+            .map(|k| format!(
+                "<option value=\"{}\"{}>{}</option>",
+                k.code(),
+                if k.code() == kind { " selected" } else { "" },
+                k.label(Lang::En)
+            ))
+            .collect::<String>()
+    );
+    w!(
+        b,
+        "<label class=\"field\"><span class=\"label\">Language</span><select name=\"lang\"><option value=\"ru\"{}>ru</option><option value=\"en\"{}>en</option></select></label>",
+        if lang == "ru" { " selected" } else { "" },
+        if lang == "en" { " selected" } else { "" }
+    );
+    w!(
+        b,
+        "<label class=\"field\"><span class=\"label\">Date</span><input name=\"date\" type=\"date\" value=\"{}\"></label>",
+        date
+    );
+    w!(
+        b,
+        "<label class=\"field\"><span class=\"label\">Visibility</span><select name=\"public\"><option value=\"1\"{}>public</option><option value=\"0\"{}>private</option></select></label>",
+        if public { " selected" } else { "" },
+        if public { "" } else { " selected" }
+    );
+    w!(
+        b,
+        "<label class=\"field field-full\"><span class=\"label\">Body (Markdown)</span><textarea name=\"body_md\" rows=\"16\" spellcheck=\"false\" data-editor>{}</textarea></label>",
+        esc(&body)
+    );
+    b.push_str("</div><div class=\"form-actions\"><div class=\"form-actions-right\">");
+    b.push_str("<button class=\"btn btn-solid\" type=\"submit\">Save</button>");
+    b.push_str("</div></div></form></section>");
+
+    if let Some(n) = note {
+        w!(
+            b,
+            "<section class=\"panel\"><div class=\"panel-head\"><span>Preview</span></div><div class=\"prose\">{}</div></section>",
+            render_markdown(&n.body_md).html
+        );
+        w!(
+            b,
+            "<form method=\"post\" action=\"/cabinet/projects/{}/notes/{}/delete\" class=\"inline\" data-confirm=\"Delete this entry?\"><button class=\"link-btn danger\" type=\"submit\">Delete entry</button></form>",
+            n.project_id,
+            n.id
+        );
+    }
+
+    cabinet_shell(chrome, "projects", "Journal entry", &b, flash)
 }

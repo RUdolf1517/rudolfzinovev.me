@@ -6,7 +6,9 @@ use std::path::Path;
 use crate::crypto;
 use crate::i18n::{self, now_unix};
 use crate::markdown;
-use crate::models::{Article, BackupStats, Profile, SessionInfo, Telemetry, ViewRecord, slug_of};
+use crate::models::{
+    Article, BackupStats, Profile, ProjectNote, RepoLink, SessionInfo, Telemetry, ViewRecord, slug_of,
+};
 use crate::sqlite::{Connection, SqlParam};
 
 pub const SESSION_TTL_SECS: i64 = 60 * 60 * 24 * 30;
@@ -50,6 +52,7 @@ impl Store {
         let store = Store { db };
         store.migrate()?;
         store.migrate_kind()?;
+        store.migrate_projects()?;
         Ok(store)
     }
 
@@ -154,6 +157,61 @@ impl Store {
             &[],
         )?;
         Ok(())
+    }
+
+    /// Project binding to a GitHub repository, its cached facts, the cached
+    /// event timeline, and the owner's private journal for the project.
+    /// Everything is additive, so it runs on every start.
+    fn migrate_projects(&self) -> Result<(), String> {
+        self.db.exec_batch(
+            "CREATE TABLE IF NOT EXISTS project_repos (
+                 project_id INTEGER PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
+                 repo TEXT NOT NULL DEFAULT '',
+                 description TEXT NOT NULL DEFAULT '',
+                 stars INTEGER NOT NULL DEFAULT 0,
+                 forks INTEGER NOT NULL DEFAULT 0,
+                 language TEXT NOT NULL DEFAULT '',
+                 license TEXT NOT NULL DEFAULT '',
+                 homepage TEXT NOT NULL DEFAULT '',
+                 open_issues INTEGER NOT NULL DEFAULT 0,
+                 archived INTEGER NOT NULL DEFAULT 0,
+                 release_tag TEXT NOT NULL DEFAULT '',
+                 release_name TEXT NOT NULL DEFAULT '',
+                 release_url TEXT NOT NULL DEFAULT '',
+                 release_at INTEGER NOT NULL DEFAULT 0,
+                 pushed_at INTEGER NOT NULL DEFAULT 0,
+                 created_at INTEGER NOT NULL DEFAULT 0,
+                 fetched_at INTEGER NOT NULL DEFAULT 0,
+                 last_error TEXT NOT NULL DEFAULT '',
+                 show_issues INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS project_events (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 project_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+                 kind TEXT NOT NULL,
+                 title TEXT NOT NULL,
+                 detail TEXT NOT NULL DEFAULT '',
+                 url TEXT NOT NULL DEFAULT '',
+                 at INTEGER NOT NULL,
+                 UNIQUE (project_id, kind, title, at)
+             );
+             CREATE INDEX IF NOT EXISTS idx_project_events
+                 ON project_events (project_id, at DESC);
+             CREATE TABLE IF NOT EXISTS project_notes (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 project_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+                 lang TEXT NOT NULL DEFAULT 'ru',
+                 kind TEXT NOT NULL DEFAULT 'note',
+                 title TEXT NOT NULL,
+                 body_md TEXT NOT NULL DEFAULT '',
+                 log_date INTEGER NOT NULL DEFAULT 0,
+                 public INTEGER NOT NULL DEFAULT 1,
+                 created_at INTEGER NOT NULL DEFAULT 0,
+                 updated_at INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE INDEX IF NOT EXISTS idx_project_notes
+                 ON project_notes (project_id, log_date DESC);",
+        )
     }
 
     pub fn owner_exists(&self) -> Result<bool, String> {
@@ -498,6 +556,244 @@ impl Store {
 
     pub fn delete_article(&self, id: i64) -> Result<(), String> {
         self.db.execute("DELETE FROM articles WHERE id = ?1", &[SqlParam::Int(id)])?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------ github bindings
+
+    /// The repository bound to a project, if any. A project with no row is
+    /// simply not linked to GitHub.
+    pub fn repo_link(&self, project_id: i64) -> Result<Option<RepoLink>, String> {
+        let rows = self.db.query_rows(
+            "SELECT repo, CASE WHEN repo = '' THEN '' ELSE 'https://github.com/' || repo END,
+                    description, stars, forks, language, license, homepage, open_issues,
+                    archived, release_tag, release_name, release_url, release_at, pushed_at,
+                    created_at, fetched_at, last_error, show_issues, project_id
+             FROM project_repos WHERE project_id = ?1",
+            &[SqlParam::Int(project_id)],
+        )?;
+        Ok(rows.first().and_then(|r| RepoLink::from_row(r)))
+    }
+
+    /// Binds (or rebinds) a project to `owner/name`. Rebinding wipes the cached
+    /// facts and events: they describe the previous repository.
+    pub fn link_repo(&self, project_id: i64, repo: &str, show_issues: bool) -> Result<(), String> {
+        let existing = self.repo_link(project_id)?;
+        if existing.as_ref().map(|l| l.repo.as_str()) != Some(repo) {
+            self.db.execute(
+                "DELETE FROM project_events WHERE project_id = ?1",
+                &[SqlParam::Int(project_id)],
+            )?;
+        }
+        self.db.execute(
+            "INSERT INTO project_repos (project_id, repo, show_issues) VALUES (?1, ?2, ?3)
+             ON CONFLICT(project_id) DO UPDATE SET repo = excluded.repo,
+                 show_issues = excluded.show_issues,
+                 fetched_at = CASE WHEN project_repos.repo = excluded.repo
+                                   THEN project_repos.fetched_at ELSE 0 END,
+                 last_error = CASE WHEN project_repos.repo = excluded.repo
+                                   THEN project_repos.last_error ELSE '' END",
+            &[
+                SqlParam::Int(project_id),
+                SqlParam::Text(repo),
+                SqlParam::Int(show_issues as i64),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn unlink_repo(&self, project_id: i64) -> Result<(), String> {
+        self.db.execute(
+            "DELETE FROM project_events WHERE project_id = ?1",
+            &[SqlParam::Int(project_id)],
+        )?;
+        self.db.execute(
+            "DELETE FROM project_repos WHERE project_id = ?1",
+            &[SqlParam::Int(project_id)],
+        )?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn set_show_issues(&self, project_id: i64, show: bool) -> Result<(), String> {
+        self.db.execute(
+            "UPDATE project_repos SET show_issues = ?2 WHERE project_id = ?1",
+            &[SqlParam::Int(project_id), SqlParam::Int(show as i64)],
+        )?;
+        Ok(())
+    }
+
+    /// Stores a successful refresh: repository facts plus the whole timeline.
+    /// Events are replaced wholesale inside one transaction-like batch.
+    pub fn save_repo_snapshot(
+        &self,
+        project_id: i64,
+        repo: &crate::github::GhRepo,
+        events: &[crate::github::GhEvent],
+        fetched_at: i64,
+    ) -> Result<(), String> {
+        self.db.execute(
+            "UPDATE project_repos SET description = ?2, stars = ?3, forks = ?4, language = ?5,
+                 license = ?6, homepage = ?7, open_issues = ?8, archived = ?9,
+                 release_tag = ?10, release_name = ?11, release_url = ?12, release_at = ?13,
+                 pushed_at = ?14, created_at = ?15, fetched_at = ?16, last_error = ''
+             WHERE project_id = ?1",
+            &[
+                SqlParam::Int(project_id),
+                SqlParam::Text(&repo.description),
+                SqlParam::Int(repo.stars),
+                SqlParam::Int(repo.forks),
+                SqlParam::Text(&repo.language),
+                SqlParam::Text(&repo.spdx),
+                SqlParam::Text(&repo.homepage),
+                SqlParam::Int(repo.open_issues),
+                SqlParam::Int(repo.archived as i64),
+                SqlParam::Text(&repo.release_tag),
+                SqlParam::Text(&repo.release_name),
+                SqlParam::Text(&repo.release_url),
+                SqlParam::Int(repo.release_at),
+                SqlParam::Int(repo.pushed_at),
+                SqlParam::Int(repo.created_at),
+                SqlParam::Int(fetched_at),
+            ],
+        )?;
+        self.db.execute(
+            "DELETE FROM project_events WHERE project_id = ?1",
+            &[SqlParam::Int(project_id)],
+        )?;
+        for e in events {
+            self.db.execute(
+                "INSERT OR IGNORE INTO project_events (project_id, kind, title, detail, url, at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                &[
+                    SqlParam::Int(project_id),
+                    SqlParam::Text(&e.kind),
+                    SqlParam::Text(&e.title),
+                    SqlParam::Text(&e.detail),
+                    SqlParam::Text(&e.url),
+                    SqlParam::Int(e.at),
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Records a failed refresh without throwing away the previous snapshot,
+    /// which is what the public page keeps showing.
+    pub fn mark_repo_error(&self, project_id: i64, error: &str) -> Result<(), String> {
+        self.db.execute(
+            "UPDATE project_repos SET last_error = ?2 WHERE project_id = ?1",
+            &[SqlParam::Int(project_id), SqlParam::Text(error)],
+        )?;
+        Ok(())
+    }
+
+    /// Cached timeline, newest first.
+    pub fn repo_events(&self, project_id: i64, limit: i64) -> Result<Vec<crate::github::GhEvent>, String> {
+        let rows = self.db.query_rows(
+            "SELECT kind, title, detail, url, at, at FROM project_events
+             WHERE project_id = ?1 ORDER BY at DESC, id DESC LIMIT ?2",
+            &[SqlParam::Int(project_id), SqlParam::Int(limit)],
+        )?;
+        Ok(rows.iter().filter_map(|r| crate::github::GhEvent::from_row(r)).collect())
+    }
+
+    /// Every project that is bound to a repository, with its id and repo.
+    #[allow(dead_code)]
+    pub fn projects_with_repo(&self) -> Result<Vec<(i64, String, i64)>, String> {
+        let rows = self.db.query_rows(
+            "SELECT project_id, repo, fetched_at FROM project_repos
+             WHERE repo != '' ORDER BY project_id",
+            &[],
+        )?;
+        Ok(rows
+            .iter()
+            .map(|r| (r[0].as_i64(), r[1].as_str().to_string(), r[2].as_i64()))
+            .collect())
+    }
+
+    // --------------------------------------------------------- project log
+
+    const NOTE_COLS: &'static str = "id, project_id, lang, kind, title, body_md, log_date, public,
+         created_at, updated_at";
+
+    pub fn project_notes(&self, project_id: i64, lang: &str, include_private: bool) -> Result<Vec<ProjectNote>, String> {
+        let sql = format!(
+            "SELECT {} FROM project_notes
+             WHERE project_id = ?1 AND lang = ?2{}
+             ORDER BY log_date DESC, id DESC",
+            Self::NOTE_COLS,
+            if include_private { "" } else { " AND public = 1" }
+        );
+        let rows = self
+            .db
+            .query_rows(&sql, &[SqlParam::Int(project_id), SqlParam::Text(lang)])?;
+        Ok(rows.iter().filter_map(|r| ProjectNote::from_row(r)).collect())
+    }
+
+    pub fn project_note(&self, id: i64) -> Result<Option<ProjectNote>, String> {
+        let sql = format!("SELECT {} FROM project_notes WHERE id = ?1", Self::NOTE_COLS);
+        let rows = self.db.query_rows(&sql, &[SqlParam::Int(id)])?;
+        Ok(rows.first().and_then(|r| ProjectNote::from_row(r)))
+    }
+
+    /// How many notes each kind has, for the cabinet badges.
+    pub fn project_note_counts(&self, project_id: i64) -> Result<(i64, i64, i64), String> {
+        let rows = self.db.query_rows(
+            "SELECT kind, COUNT(*) FROM project_notes WHERE project_id = ?1 GROUP BY kind",
+            &[SqlParam::Int(project_id)],
+        )?;
+        let mut counts = (0i64, 0i64, 0i64);
+        for row in rows {
+            match row[0].as_str() {
+                "decision" => counts.1 = row[1].as_i64(),
+                "milestone" => counts.2 = row[1].as_i64(),
+                _ => counts.0 = row[1].as_i64(),
+            }
+        }
+        Ok(counts)
+    }
+
+    pub fn create_project_note(&self, note: &ProjectNote) -> Result<i64, String> {
+        let ts = now_unix();
+        self.db.insert(
+            "INSERT INTO project_notes
+               (project_id, lang, kind, title, body_md, log_date, public, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+            &[
+                SqlParam::Int(note.project_id),
+                SqlParam::Text(&note.lang),
+                SqlParam::Text(&note.kind),
+                SqlParam::Text(&note.title),
+                SqlParam::Text(&note.body_md),
+                SqlParam::Int(if note.log_date > 0 { note.log_date } else { ts }),
+                SqlParam::Int(note.public as i64),
+                SqlParam::Int(ts),
+            ],
+        )
+    }
+
+    pub fn update_project_note(&self, note: &ProjectNote) -> Result<(), String> {
+        self.db.execute(
+            "UPDATE project_notes SET lang = ?2, kind = ?3, title = ?4, body_md = ?5,
+                 log_date = ?6, public = ?7, updated_at = ?8
+             WHERE id = ?1",
+            &[
+                SqlParam::Int(note.id),
+                SqlParam::Text(&note.lang),
+                SqlParam::Text(&note.kind),
+                SqlParam::Text(&note.title),
+                SqlParam::Text(&note.body_md),
+                SqlParam::Int(note.log_date),
+                SqlParam::Int(note.public as i64),
+                SqlParam::Int(now_unix()),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_project_note(&self, id: i64) -> Result<(), String> {
+        self.db.execute("DELETE FROM project_notes WHERE id = ?1", &[SqlParam::Int(id)])?;
         Ok(())
     }
 
@@ -1079,6 +1375,133 @@ mod tests {
         assert!(json.contains("\\\"Quoted\\\""));
         assert!(json.contains("\"articles\": ["));
         assert!(json.trim_end().ends_with('}'));
+    }
+
+    #[test]
+    fn project_repo_binding_and_snapshot_cache() {
+        let store = temp_db("repo");
+        let project = store
+            .list_articles(&ArticleFilter { kind: Some("project"), include_drafts: true, ..Default::default() })
+            .unwrap()
+            .remove(0);
+
+        // Unlinked projects simply have no row.
+        assert!(store.repo_link(project.id).unwrap().is_none());
+
+        store.link_repo(project.id, "RUdolf1517/tzim", false).unwrap();
+        let link = store.repo_link(project.id).unwrap().unwrap();
+        assert_eq!(link.repo, "RUdolf1517/tzim");
+        assert!(link.fetched_at == 0);
+        assert!(!link.issues_enabled());
+
+        let repo = crate::github::GhRepo {
+            description: "shrink the file".into(),
+            stars: 7,
+            forks: 1,
+            language: "Rust".into(),
+            spdx: "MIT".into(),
+            pushed_at: 1_700_000_000,
+            release_tag: "v0.16.1".into(),
+            ..Default::default()
+        };
+        let events = vec![
+            crate::github::GhEvent {
+                kind: "release".into(),
+                title: "v0.16.1".into(),
+                detail: "v0.16.1".into(),
+                url: "https://github.com/RUdolf1517/tzim/releases/tag/v0.16.1".into(),
+                at: 1_700_000_100,
+            },
+            crate::github::GhEvent {
+                kind: "commit".into(),
+                title: "brew: update formula".into(),
+                detail: "f605c2e · Rudolf".into(),
+                url: String::new(),
+                at: 1_700_000_200,
+            },
+        ];
+        store.save_repo_snapshot(project.id, &repo, &events, 1_700_000_300).unwrap();
+        let link = store.repo_link(project.id).unwrap().unwrap();
+        assert_eq!(link.stars, 7);
+        assert_eq!(link.release_tag, "v0.16.1");
+        assert_eq!(link.fetched_at, 1_700_000_300);
+        assert!(link.last_error.is_empty());
+
+        // Newest first.
+        let cached = store.repo_events(project.id, 10).unwrap();
+        assert_eq!(cached.len(), 2);
+        assert_eq!(cached[0].kind, "commit");
+
+        // A failed refresh keeps the facts and records the reason.
+        store.mark_repo_error(project.id, "rate-limited").unwrap();
+        let link = store.repo_link(project.id).unwrap().unwrap();
+        assert_eq!(link.last_error, "rate-limited");
+        assert_eq!(link.stars, 7);
+        assert_eq!(store.repo_events(project.id, 10).unwrap().len(), 2);
+
+        // Rebinding another repository drops the timeline of the old one.
+        store.link_repo(project.id, "RUdolf1517/rudolfzinovev.me", true).unwrap();
+        assert_eq!(store.repo_events(project.id, 10).unwrap().len(), 0);
+        let link = store.repo_link(project.id).unwrap().unwrap();
+        assert_eq!(link.fetched_at, 0);
+        assert!(link.issues_enabled());
+
+        store.unlink_repo(project.id).unwrap();
+        assert!(store.repo_link(project.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn project_notes_respect_kind_language_and_visibility() {
+        let store = temp_db("notes");
+        let project = store
+            .list_articles(&ArticleFilter { kind: Some("project"), include_drafts: true, ..Default::default() })
+            .unwrap()
+            .remove(0);
+
+        let make = |kind: &str, lang: &str, public: bool, day: i64, title: &str| ProjectNote {
+            id: 0,
+            project_id: project.id,
+            lang: lang.into(),
+            kind: kind.into(),
+            title: title.into(),
+            body_md: "# body\n\ntext".into(),
+            log_date: day,
+            public,
+            created_at: 0,
+            updated_at: 0,
+        };
+        store.create_project_note(&make("note", "ru", true, 100, "наблюдение")).unwrap();
+        store.create_project_note(&make("decision", "ru", true, 200, "решение")).unwrap();
+        store.create_project_note(&make("milestone", "ru", true, 300, "этап")).unwrap();
+        store.create_project_note(&make("note", "ru", false, 400, "черновик")).unwrap();
+        store.create_project_note(&make("note", "en", true, 500, "observation")).unwrap();
+
+        let public_ru = store.project_notes(project.id, "ru", false).unwrap();
+        assert_eq!(public_ru.len(), 3, "private entries stay hidden");
+        assert_eq!(public_ru[0].title, "этап", "newest first");
+
+        let owner_ru = store.project_notes(project.id, "ru", true).unwrap();
+        assert_eq!(owner_ru.len(), 4, "the owner sees drafts");
+
+        // Language separation is strict: no EN entry leaks into RU.
+        assert!(store.project_notes(project.id, "ru", true).unwrap().iter().all(|n| n.lang == "ru"));
+        assert_eq!(store.project_notes(project.id, "en", true).unwrap().len(), 1);
+
+        let counts = store.project_note_counts(project.id).unwrap();
+        assert_eq!(counts, (3, 1, 1));
+
+        // Update then delete.
+        let mut first = store.project_note(public_ru[0].id).unwrap().unwrap();
+        first.title = "этап пройден".into();
+        first.public = false;
+        store.update_project_note(&first).unwrap();
+        let back = store.project_note(first.id).unwrap().unwrap();
+        assert_eq!(back.title, "этап пройден");
+        assert!(!back.public);
+
+        store.delete_project_note(first.id).unwrap();
+        assert!(store.project_note(first.id).unwrap().is_none());
+        assert_eq!(store.project_notes(project.id, "ru", true).unwrap().len(), 3);
     }
 
     #[test]

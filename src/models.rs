@@ -281,3 +281,172 @@ pub fn detect_lang(headers: &str, cookie_lang: Option<&str>) -> Lang {
     }
     Lang::Ru
 }
+
+// ------------------------------------------------------------- project log
+
+/// What a project-log entry is. Deliberately separate from `Kind`: a `note`
+/// article is a standalone essay, while these three belong to one project and
+/// are shown under its GitHub timeline as the owner's own voice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogKind {
+    /// An observation or thought about the work.
+    Note,
+    /// A technical decision, with the trade-off it settled.
+    Decision,
+    /// A stage that was reached.
+    Milestone,
+}
+
+impl LogKind {
+    pub fn code(self) -> &'static str {
+        match self {
+            LogKind::Note => "note",
+            LogKind::Decision => "decision",
+            LogKind::Milestone => "milestone",
+        }
+    }
+
+    pub fn from_code(s: &str) -> LogKind {
+        match s {
+            "decision" => LogKind::Decision,
+            "milestone" => LogKind::Milestone,
+            _ => LogKind::Note,
+        }
+    }
+
+    pub fn all() -> [LogKind; 3] {
+        [LogKind::Note, LogKind::Decision, LogKind::Milestone]
+    }
+
+    /// Roman numeral used as the margin mark: a decision is not a note.
+    pub fn mark(self) -> &'static str {
+        match self {
+            LogKind::Note => "N",
+            LogKind::Decision => "D",
+            LogKind::Milestone => "M",
+        }
+    }
+
+    pub fn label(self, lang: Lang) -> &'static str {
+        match (self, lang) {
+            (LogKind::Note, Lang::Ru) => "наблюдение",
+            (LogKind::Note, Lang::En) => "observation",
+            (LogKind::Decision, Lang::Ru) => "решение",
+            (LogKind::Decision, Lang::En) => "decision",
+            (LogKind::Milestone, Lang::Ru) => "этап",
+            (LogKind::Milestone, Lang::En) => "milestone",
+        }
+    }
+}
+
+/// A note in a project's own journal. Owner-written, never generated.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // created_at/updated_at are kept for the backup export
+pub struct ProjectNote {
+    pub id: i64,
+    /// The project entry this note belongs to (an `articles` row of kind `project`).
+    pub project_id: i64,
+    pub lang: String,
+    pub kind: String,
+    pub title: String,
+    pub body_md: String,
+    pub log_date: i64,
+    pub public: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl ProjectNote {
+    pub fn from_row(row: &[SqlVal]) -> Option<ProjectNote> {
+        if row.len() < 10 {
+            return None;
+        }
+        Some(ProjectNote {
+            id: row[0].as_i64(),
+            project_id: row[1].as_i64(),
+            lang: row[2].as_str().to_string(),
+            kind: row[3].as_str().to_string(),
+            title: row[4].as_str().to_string(),
+            body_md: row[5].as_str().to_string(),
+            log_date: row[6].as_i64(),
+            public: row[7].as_i64() != 0,
+            created_at: row[8].as_i64(),
+            updated_at: row[9].as_i64(),
+        })
+    }
+
+    pub fn kind_enum(&self) -> LogKind {
+        LogKind::from_code(&self.kind)
+    }
+
+    pub fn date_iso(&self) -> String {
+        crate::i18n::format_date_utc(self.log_date)
+    }
+}
+
+/// GitHub binding of a project plus the cached facts we show.
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // a few facts are cached for the export, not shown on the page
+pub struct RepoLink {
+    /// `owner/name`, empty when the project has no repository.
+    pub repo: String,
+    pub html_url: String,
+    pub description: String,
+    pub stars: i64,
+    pub forks: i64,
+    pub language: String,
+    pub license: String,
+    pub homepage: String,
+    pub open_issues: i64,
+    pub archived: bool,
+    pub release_tag: String,
+    pub release_name: String,
+    pub release_url: String,
+    pub release_at: i64,
+    pub pushed_at: i64,
+    pub created_at: i64,
+    pub fetched_at: i64,
+    /// Last refresh failure: `network`, `not-found`, `rate-limited`, `api-error`.
+    pub last_error: String,
+    pub show_issues: bool,
+}
+
+impl RepoLink {
+    pub fn from_row(row: &[SqlVal]) -> Option<RepoLink> {
+        if row.len() < 20 {
+            return None;
+        }
+        Some(RepoLink {
+            repo: row[0].as_str().to_string(),
+            html_url: row[1].as_str().to_string(),
+            description: row[2].as_str().to_string(),
+            stars: row[3].as_i64(),
+            forks: row[4].as_i64(),
+            language: row[5].as_str().to_string(),
+            license: row[6].as_str().to_string(),
+            homepage: row[7].as_str().to_string(),
+            open_issues: row[8].as_i64(),
+            archived: row[9].as_i64() != 0,
+            release_tag: row[10].as_str().to_string(),
+            release_name: row[11].as_str().to_string(),
+            release_url: row[12].as_str().to_string(),
+            release_at: row[13].as_i64(),
+            pushed_at: row[14].as_i64(),
+            created_at: row[15].as_i64(),
+            fetched_at: row[16].as_i64(),
+            last_error: row[17].as_str().to_string(),
+            show_issues: row[18].as_i64() != 0,
+            // row[19] is the project id, kept only by the SQL projection.
+        })
+    }
+
+    pub fn is_linked(&self) -> bool {
+        !self.repo.is_empty()
+    }
+
+    /// Issues are opt-in: a catalogue of projects should not look like a
+    /// support desk unless the owner asked for it.
+    pub fn issues_enabled(&self) -> bool {
+        self.is_linked() && self.show_issues
+    }
+}

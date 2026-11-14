@@ -75,3 +75,19 @@ Point it at an existing database — the schema is identical.
    redirects 303 to `/cabinet`, and `/cabinet` renders.
 5. `POST /cabinet/articles/new` with `Origin` matching `Host` creates an entry;
    without that header it must answer 403.
+
+## GitHub integration
+
+`src/lib.rs` reuses `../../src/github.rs` and `../../src/json.rs` verbatim, so
+the axum build gets the same repository facts and timeline. The project page
+(`entry_page_with` + `ProjectView`) is wired in `handlers.rs`; the mapping from
+rows to the view model is identical to the zero-crate server.
+
+The cabinet routes for project bindings and the journal are **not** ported
+here. Configure them through the zero-crate binary (`rudolfzinovev serve`), or
+add `cabinet_project_route` to `handlers.rs` — the store methods it needs are
+already available on `Store`.
+
+One extra build requirement: `libssl` is now linked (the GitHub client speaks
+TLS through it), so the toolchain needs OpenSSL development files just like
+`libcrypto` already did.

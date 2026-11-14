@@ -618,7 +618,28 @@ async fn entry(h: &Handler, req: &Req, kind: Kind, slug: &str) -> Response {
     let _ = h.state.store.increment_views(article.id);
     let profile = h.state.profile_now();
     let chrome = h.chrome(req, lang, &profile);
-    let html = templates::entry_page(&chrome, &article, other.as_ref(), &related);
+    let html = if article.is_project() {
+        // Same data as the zero-crate server: facts, timeline, journal — kept apart.
+        let link = h.state.store.repo_link(article.id).ok().flatten();
+        let events = if link.as_ref().map(|l| l.is_linked()).unwrap_or(false) {
+            h.state.store.repo_events(article.id, 24).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let notes = h
+            .state
+            .store
+            .project_notes(article.id, lang.code(), req.cookie(SESSION_COOKIE).is_some())
+            .unwrap_or_default();
+        let view = templates::ProjectView {
+            link: link.as_ref(),
+            events: &events,
+            notes: &notes,
+        };
+        templates::entry_page_with(&chrome, &article, other.as_ref(), &related, Some(&view))
+    } else {
+        templates::entry_page_with(&chrome, &article, other.as_ref(), &related, None)
+    };
     h.done(req, Out::html(200, html))
 }
 

@@ -947,6 +947,175 @@ select { cursor: pointer; }
 .panel-foot b { color: var(--ink-2); font-weight: 400; }
 .panel .prose { padding: 0; font-size: 16px; }
 
+/* ------------------------------------------------------------------------
+   Project page: two histories that must not look alike.
+
+   «Из репозитория» is machine text — mono, dated on the left, no ornament.
+   «Журнал» is the owner's voice — serif, margin marks, drop-cap paragraphs.
+   The shapes differ on purpose: one is a feed, the other is a notebook.
+   ------------------------------------------------------------------------ */
+
+.repo { margin-top: clamp(48px, 7vw, 76px); max-width: var(--text); }
+
+.repo-head { display: block; }
+
+.repo-name {
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line-2);
+}
+.repo-name:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+.repo-facts {
+  margin: 8px 0 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.repo-desc { margin: 12px 0 0; color: var(--ink-2); font-size: 16px; }
+
+.repo-release { margin: 14px 0 0; font-size: 15px; }
+.repo-release-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 6px;
+}
+.repo-release a { border-bottom: 1px solid var(--line-2); }
+.repo-release a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* The feed: a dated list, monospaced, with dotted leaders — same grammar as
+   the catalogue, so it reads as the site's own voice and not a widget. */
+.feed { list-style: none; margin: 22px 0 0; padding: 0; }
+.feed-item {
+  display: grid;
+  grid-template-columns: 96px 74px 1fr;
+  gap: 0 14px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.feed-item time { color: var(--muted); letter-spacing: 0.02em; }
+.feed-kind {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--line-2);
+}
+.feed-title {
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.feed-title:hover { color: var(--accent); }
+.feed-detail {
+  grid-column: 3;
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.feed-release .feed-kind { color: var(--accent); }
+.repo-stamp {
+  margin: 12px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.repo-stamp a { border-bottom: 1px solid var(--line-2); }
+.repo-stamp a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* The journal: the owner's voice. No mono, no leaders, a margin mark. */
+.journal { margin-top: clamp(48px, 7vw, 76px); max-width: var(--text); }
+.journal-kind {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 30px 0 4px;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.journal-kind .mark {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  border: 1px solid var(--line-2);
+  padding: 1px 5px;
+}
+.journal-item {
+  padding: 16px 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.journal-item:last-child { border-bottom: 0; }
+.journal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+.journal-date {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.journal-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 400;
+  color: var(--ink);
+}
+.journal-private {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--danger);
+}
+.journal-edit {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line-2);
+}
+.journal-edit:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.journal-body { font-size: 16.5px; }
+.journal-body > *:first-child { margin-top: 0; }
+.journal-body > p:first-of-type::first-letter {
+  float: left;
+  font-size: 2.6em;
+  line-height: 0.82;
+  padding: 0.06em 0.08em 0 0;
+  color: var(--accent);
+}
+.journal-add { margin: 18px 0 0; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; }
+.journal-add a { color: var(--muted); border-bottom: 1px solid var(--line-2); }
+.journal-add a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+@media (max-width: 640px) {
+  .feed-item { grid-template-columns: 84px 1fr; }
+  .feed-kind { display: none; }
+  .feed-detail { grid-column: 2; }
+}
+
+
 .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tbl th {
   padding: 0 12px 8px 0;

@@ -6,8 +6,10 @@
 mod app;
 mod crypto;
 mod db;
+mod github;
 mod http;
 mod i18n;
+mod json;
 mod markdown;
 mod models;
 mod sqlite;
@@ -97,6 +99,44 @@ fn main() {
             "--no-gzip" => {
                 gzip = false;
                 i += 1;
+            }
+            // Diagnostics: talk to the API once and print what we would cache.
+            // Handy on a VPS where the app is behind nginx and hard to poke.
+            "github" => {
+                let Some(spec) = args.get(i + 1) else {
+                    eprintln!("usage: rudolfzinovev github <owner/name>");
+                    std::process::exit(2);
+                };
+                let Some(repo) = github::normalise_repo(spec) else {
+                    eprintln!("not an owner/name reference: {spec}");
+                    std::process::exit(2);
+                };
+                match github::fetch(&repo) {
+                    Ok(fetched) => {
+                        let r = &fetched.repo;
+                        println!("{repo} · ★{} ⑂{} · {} · {}", r.stars, r.forks, r.language, r.spdx);
+                        if !r.description.is_empty() {
+                            println!("  {}", r.description);
+                        }
+                        if !r.release_tag.is_empty() {
+                            println!("  release {} ({})", r.release_tag, r.release_name);
+                        }
+                        println!("  events: {}", fetched.events.len());
+                        for e in fetched.events.iter().take(6) {
+                            println!(
+                                "  · {} {} — {}",
+                                e.kind,
+                                i18n::format_date_utc(e.at),
+                                e.title
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("github: {} ({:?})", err.code(), err);
+                        std::process::exit(1);
+                    }
+                }
+                return;
             }
             "--seed" => {
                 seed = true;
