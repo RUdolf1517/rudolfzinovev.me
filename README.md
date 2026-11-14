@@ -5,7 +5,7 @@
 
 [![tests](https://img.shields.io/badge/tests-24%20passing-3f6b34)](#тесты)
 [![deps](https://img.shields.io/badge/dependencies-0-d9a04d)](#zero-crates)
-[![binary](https://img.shields.io/badge/binary-907%20KB-191713)](#performance)
+[![binary](https://img.shields.io/badge/binary-911%20KB-191713)](#performance)
 [![license](https://img.shields.io/badge/license-RZ--NONCOMMERCIAL--1.0-c2542d)](LICENSE)
 
 ---
@@ -17,7 +17,7 @@
 | **Сайт** | Статьи с тегами, поиском, RSS и оглавлением; два языка (RU/EN), две темы (Obsidian / Paper). |
 | **Кабинет** | `/cabinet` — только для владельца: Markdown-редактор с черновиками и публикацией, профиль и манифест сайта, приватная телеметрия, сессии и смена пароля, JSON-бэкап. |
 | **Стек** | Rust 2024, `std::net`, системные `libsqlite3` / `libcrypto` / `libz`. Ноль крейтов, ноль JS-сборки, ноль внешних запросов из браузера. |
-| **Размер** | 907 КБ бинарник (399 КБ gzip), 11 КБ gzip главная страница, < 2 КБ gzip JavaScript. |
+| **Размер** | 911 КБ бинарник (402 КБ gzip), 11 КБ gzip главная страница, < 2 КБ gzip JavaScript. |
 | **Развёртывание** | Один бинарник + один файл SQLite на любом Debian/Ubuntu VPS. |
 
 ---
@@ -149,11 +149,11 @@ rudolfzinovev seed
 | Метрика | Значение |
 |---|---|
 | Ответ сервера (SSR + БД) | **0.7–1.1 мс** (TTFB на loopback) |
-| Главная, gzip | **11.3 КБ** (весь документ, CSS внутри) |
-| Статья, gzip | **12.2 КБ** |
+| Главная, gzip | **11.7 КБ** (весь документ, CSS внутри) |
+| Статья, gzip | **12.6 КБ** |
 | CSS, gzip | 6.4 КБ (инлайн, один запрос на документ) |
 | JS, gzip | **2.0 КБ** (progressive enhancement, без фреймворков) |
-| Бинарник | 907 КБ (399 КБ gzip) |
+| Бинарник | 911 КБ (402 КБ gzip) |
 | Внешние запросы браузера | **0** |
 
 Приёмы: инлайн CSS в `<head>`, `ETag` + `304` на каждый HTML-ответ,
