@@ -1,5 +1,5 @@
-/* Minimal progressive enhancement (~2 KB gzip). The site is fully
-   functional without it: links, search and forms are plain HTTP. */
+/* Minimal progressive enhancement (~1 KB gzip). Everything works without it:
+   navigation, search and forms are plain HTTP; the theme is a server cookie. */
 (function () {
   "use strict";
   var doc = document.documentElement;
@@ -56,27 +56,6 @@
   if (navigator.clipboard) {
     document.querySelectorAll("[data-copy-btn]").forEach(function (b) { b.hidden = false; });
   }
-
-  /* --- show the measured request/render time in the instrument line --- */
-  try {
-    var nav = performance.getEntriesByType("navigation")[0];
-    if (nav && nav.responseStart > 0 && nav.requestStart > 0) {
-      var us = Math.round((nav.responseStart - nav.requestStart) * 1000);
-      document.querySelectorAll("[data-render-us]").forEach(function (n) {
-        n.textContent = us;
-      });
-    }
-  } catch (err) { /* metrics are cosmetic */ }
-
-  /* --- live UTC clock in the ticker --- */
-  var clock = document.querySelector("[data-clock]");
-  function tick() {
-    if (!clock) return;
-    var d = new Date();
-    var p = function (n) { return String(n).padStart(2, "0"); };
-    clock.textContent = p(d.getUTCHours()) + ":" + p(d.getUTCMinutes()) + ":" + p(d.getUTCSeconds());
-  }
-  if (clock) { tick(); setInterval(tick, 1000); }
 
   /* --- editor counters --- */
   var editor = document.querySelector("[data-editor]");

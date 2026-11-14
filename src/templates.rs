@@ -56,13 +56,6 @@ impl Chrome<'_> {
         t(self.lang)
     }
 
-    fn role(&self) -> &str {
-        match self.lang {
-            Lang::Ru => &self.profile.role_ru,
-            Lang::En => &self.profile.role_en,
-        }
-    }
-
     /// Same path in the other language, swapping the `/en` prefix.
     fn alt_lang_path(&self, target: Lang) -> String {
         let path = self.path;
@@ -151,28 +144,18 @@ fn header(chrome: &Chrome<'_>) -> String {
     h.push_str("</a>\n<header class=\"masthead\">\n<div class=\"masthead-inner\">\n");
     w!(
         h,
-        "<a class=\"brand\" href=\"{}\"><span class=\"brand-mark\">RZ</span><span class=\"brand-text\"><strong>{}</strong><small>{}</small></span></a>\n",
+        "<a class=\"brand\" href=\"{}\" aria-label=\"{}\">{}</a>\n",
         chrome.href("home"),
         esc(&chrome.profile.owner_name),
-        esc(chrome.role())
+        esc(&chrome.profile.owner_name)
     );
     h.push_str("<nav class=\"nav\" aria-label=\"Primary\">");
-    for (key, label) in [
-        ("articles", tr.nav_articles),
-        ("about", tr.nav_about),
-        ("tags", tr.all_tags),
-    ] {
-        let href = if key == "tags" {
-            format!("{}/tags", chrome.lang.prefix())
-        } else {
-            chrome.href(key)
-        };
+    for (key, label) in [("articles", tr.nav_articles), ("about", tr.nav_about)] {
         w!(
             h,
-            "<a href=\"{}\"{}><span class=\"nav-idx\">{:02}</span>{}</a>",
-            href,
+            "<a href=\"{}\"{}>{}</a>",
+            chrome.href(key),
             if chrome.is_active(key) { " aria-current=\"page\"" } else { "" },
-            match key { "articles" => 1, "about" => 2, _ => 3 },
             label
         );
     }
@@ -200,78 +183,26 @@ fn header(chrome: &Chrome<'_>) -> String {
         }
     );
     if chrome.owner {
-        w!(h, "<a class=\"tool tool-accent\" href=\"/cabinet\">[{}]</a>", tr.nav_cabinet);
+        w!(h, "<a class=\"tool tool-accent\" href=\"/cabinet\">{}</a>", tr.nav_cabinet);
     }
-    h.push_str("<a class=\"tool\" href=\"/feed.xml\" title=\"RSS\">RSS</a>");
-    h.push_str("</div>\n</div>\n");
-    // Instrument ticker
-    h.push_str("<div class=\"ticker\" aria-hidden=\"true\"><div class=\"ticker-inner\">");
-    w!(
-        h,
-        "<span class=\"tick tick-live\"><i></i>{}</span>",
-        esc(&chrome.profile.location)
-    );
-    h.push_str("<span class=\"tick\">UTC <b data-clock>--:--:--</b></span>");
-    w!(
-        h,
-        "<span class=\"tick\">{} <b data-render-us>—</b> µs</span>",
-        tr.hero_render
-    );
-    w!(
-        h,
-        "<span class=\"tick\">CACHE <b>ETAG / 304</b></span>"
-    );
-    w!(
-        h,
-        "<span class=\"tick tick-right\">RZ-NONCOMMERCIAL-1.0</span></div></div>\n",
-    );
-    h.push_str("</header>\n");
+    h.push_str("</div>\n</div>\n</header>\n");
     h
 }
 
 fn footer(chrome: &Chrome<'_>) -> String {
-    let tr = chrome.t();
     let mut h = String::new();
-    h.push_str("<footer class=\"foot\">\n<div class=\"foot-inner\">");
+    h.push_str("<footer class=\"foot\">\n<p class=\"foot-base\">");
     w!(
         h,
-        "<div class=\"foot-col\"><span class=\"label\">NODE</span><b>{}</b><span>{}</span></div>",
-        esc(&chrome.profile.owner_name),
-        esc(&chrome.profile.location)
-    );
-    w!(
-        h,
-        "<div class=\"foot-col\"><span class=\"label\">BUILD</span><b>{}</b><span>{}</span></div>",
-        env!("CARGO_PKG_VERSION"),
-        tr.footer_built
-    );
-    w!(
-        h,
-        "<div class=\"foot-col\"><span class=\"label\">LICENSE</span><b>{}</b><span>{}</span></div>",
-        "RZ-NONCOMMERCIAL-1.0",
-        tr.footer_license
-    );
-    w!(
-        h,
-        "<div class=\"foot-col\"><span class=\"label\">{}</span><b><span data-render-us>—</span> µs</b><span>server-timing</span></div>",
-        tr.hero_render
-    );
-    h.push_str("</div><div class=\"foot-base\">");
-    w!(
-        h,
-        "<span>© {} {} · {}</span>",
+        "<span>© {} {}</span>",
         i18n::format_date_utc(i18n::now_unix()).get(..4).unwrap_or("2025"),
-        esc(&chrome.profile.owner_name),
-        tr.footer_built
+        esc(&chrome.profile.owner_name)
     );
     w!(
         h,
-        "<span class=\"foot-links\"><a href=\"{}\">{}</a> · <a href=\"/feed.xml\">RSS</a> · <a href=\"/sitemap.xml\">SITEMAP</a> · <a href=\"/login\">{}</a></span>",
-        chrome.href("about"),
-        tr.nav_about,
-        tr.footer_admin
+        "<span class=\"foot-links\"><a href=\"/feed.xml\">RSS</a> · <a href=\"/sitemap.xml\">Sitemap</a> · <a href=\"https://github.com/RUdolf1517\" rel=\"me noopener\">GitHub</a> · <a href=\"/login\">Sign in</a></span>"
     );
-    h.push_str("</div>\n</footer>\n");
+    h.push_str("</p>\n</footer>\n");
     w!(h, "<script>{}</script>\n", JS);
     h.push_str("</body>\n</html>\n");
     h
@@ -290,13 +221,12 @@ fn layout(chrome: &Chrome<'_>, title: &str, description: &str, body: &str) -> St
 
 // ------------------------------------------------------------------- home
 
-fn article_row(chrome: &Chrome<'_>, idx: usize, a: &Article) -> String {
+fn article_row(chrome: &Chrome<'_>, a: &Article) -> String {
     let tr = chrome.t();
     let mut h = String::new();
     w!(
         h,
-        "<li class=\"row\"><span class=\"row-idx\">{:02}</span><a class=\"row-link\" href=\"{}/articles/{}\">",
-        idx,
+        "<li class=\"row\"><a class=\"row-link\" href=\"{}/articles/{}\">",
         a.lang_enum().prefix(),
         esc(&a.slug)
     );
@@ -336,57 +266,55 @@ pub fn home(
 ) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"hero\">\n<div class=\"hero-copy\">\n");
-    w!(b, "<p class=\"kicker\"><span class=\"kicker-mark\">◆</span>{}</p>\n", tr.hero_kicker);
-    // Split the owner name for an oversized two-line display.
-    let mut parts = chrome.profile.owner_name.splitn(2, ' ');
-    let first = parts.next().unwrap_or("");
-    let rest = parts.next().unwrap_or("");
-    b.push_str("<h1 class=\"display\">");
-    w!(b, "<span>{}</span>", esc(first));
-    if !rest.is_empty() {
-        w!(b, "<span class=\"display-alt\">{}</span>", esc(rest));
-    }
-    b.push_str("</h1>\n");
+    b.push_str("<section class=\"hero\">\n");
+    w!(b, "<p class=\"kicker\">{}</p>\n", esc(match chrome.lang {
+        Lang::Ru => &chrome.profile.role_ru,
+        Lang::En => &chrome.profile.role_en,
+    }));
+    w!(
+        b,
+        "<h1 class=\"display\">{}</h1>\n",
+        esc(&chrome.profile.owner_name)
+    );
     w!(b, "<p class=\"lede\">{}</p>\n", esc(&match chrome.lang {
         Lang::Ru => &chrome.profile.manifesto_ru,
         Lang::En => &chrome.profile.manifesto_en,
     }));
-    b.push_str("<div class=\"cta\">");
-    w!(b, "<a class=\"btn btn-solid\" href=\"{}\">{}</a>", chrome.href("articles"), tr.hero_cta_articles);
-    w!(b, "<a class=\"btn\" href=\"{}\">{}</a>", chrome.href("about"), tr.hero_cta_about);
-    b.push_str("</div>\n</div>\n");
-    // Instrument panel on the right: spec sheet, not decoration.
-    b.push_str("<aside class=\"spec\">\n");
-    w!(b, "<div class=\"spec-head\"><span>SPEC // NODE</span><span class=\"spec-live\">LIVE</span></div>\n");
-    b.push_str("<dl class=\"spec-list\">");
-    for (k, v) in [
-        ("STACK", "RUST / C-FFI"),
-        ("STORE", "SQLITE · WAL"),
-        ("TRANSPORT", "HTTP/1.1 · GZIP"),
-        ("BROWSER JS", "< 2 KB"),
-        ("EXTERNAL REQ", "0"),
-    ] {
-        w!(b, "<div><dt>{}</dt><dd>{}</dd></div>", k, v);
-    }
+    let (entries_word, tags_word) = match chrome.lang {
+        Lang::Ru => (
+            i18n::ru_plural(article_total, "запись", "записи", "записей"),
+            i18n::ru_plural(tags.len() as i64, "тег", "тега", "тегов"),
+        ),
+        Lang::En => (
+            if article_total == 1 { "entry" } else { "entries" },
+            if tags.len() == 1 { "tag" } else { "tags" },
+        ),
+    };
     w!(
         b,
-        "<div><dt>ENTRIES</dt><dd>{:02}</dd></div>",
-        article_total
+        "<p class=\"counts\">{} {} · {} {}</p>\n",
+        article_total,
+        entries_word,
+        tags.len(),
+        tags_word
     );
-    w!(b, "<div><dt>LICENSE</dt><dd>NON-COMMERCIAL</dd></div>");
-    b.push_str("</dl>\n");
+    b.push_str("<p class=\"cta\">");
     w!(
         b,
-        "<p class=\"spec-note\">{} · {} µs budget</p>\n",
-        esc(tr.hero_status),
-        800
+        "<a class=\"btn-link\" href=\"{}\">{}</a>",
+        chrome.href("articles"),
+        tr.hero_cta_articles
     );
-    b.push_str("</aside>\n</section>\n");
+    w!(
+        b,
+        "<a class=\"btn-link\" href=\"{}\">{}</a>",
+        chrome.href("about"),
+        tr.hero_cta_about
+    );
+    b.push_str("</p>\n</section>\n");
 
-    // Search + section head
     b.push_str("<section class=\"section\">\n<div class=\"section-head\">\n");
-    w!(b, "<h2 class=\"h2\"><span class=\"h2-mark\">01</span>{}</h2>", tr.latests);
+    w!(b, "<h2 class=\"h2\">{}</h2>", tr.latests);
     w!(b, "<p class=\"section-sub\">{}</p>", tr.latests_sub);
     b.push_str("</div>\n");
     b.push_str(&search_box(chrome, None));
@@ -394,27 +322,27 @@ pub fn home(
         w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
     } else {
         b.push_str("<ol class=\"rows\">");
-        for (i, a) in latests.iter().enumerate() {
-            b.push_str(&article_row(chrome, i + 1, a));
+        for a in latests {
+            b.push_str(&article_row(chrome, a));
         }
         b.push_str("</ol>");
     }
     w!(
         b,
-        "<p class=\"more\"><a class=\"btn btn-link\" href=\"{}\">{} →</a></p>",
+        "<p class=\"more\"><a href=\"{}\">{} →</a></p>",
         chrome.href("articles"),
         tr.all_articles
     );
     b.push_str("</section>\n");
 
     if !tags.is_empty() {
-        b.push_str("<section class=\"section section-tags\">\n");
-        w!(b, "<h2 class=\"h2\"><span class=\"h2-mark\">02</span>{}</h2>", tr.all_tags);
-        b.push_str("<div class=\"chips\">");
+        b.push_str("<section class=\"section\">\n<div class=\"section-head\">\n");
+        w!(b, "<h2 class=\"h2\">{}</h2>", tr.all_tags);
+        b.push_str("</div>\n<div class=\"chips\">");
         for (tag, slug, count) in tags {
             w!(
                 b,
-                "<a class=\"chip chip-lg\" href=\"{}/tags/{}\">{} <span class=\"chip-n\">{}</span></a>",
+                "<a class=\"chip\" href=\"{}/tags/{}\">{}<span class=\"chip-n\"> ({})</span></a>",
                 chrome.lang.prefix(),
                 slug,
                 esc(tag),
@@ -432,14 +360,13 @@ fn search_box(chrome: &Chrome<'_>, query: Option<&str>) -> String {
     let tr = chrome.t();
     format!(
         "<form class=\"search\" action=\"{}/articles\" method=\"get\" role=\"search\">\
-         <label class=\"label\" for=\"q\">{}</label>\
-         <div class=\"search-field\"><span class=\"prompt\">$</span>\
-         <input id=\"q\" name=\"q\" type=\"search\" value=\"{}\" placeholder=\"{}\" autocomplete=\"off\" data-search-input>\
-         <button class=\"btn btn-mini\" type=\"submit\">{}</button></div></form>",
+         <div class=\"search-field\">\
+         <input id=\"q\" name=\"q\" type=\"search\" value=\"{}\" placeholder=\"{}\" aria-label=\"{}\" autocomplete=\"off\" data-search-input>\
+         <button class=\"btn-mini\" type=\"submit\">{}</button></div></form>",
         chrome.lang.prefix(),
-        tr.search_label,
         esc(query.unwrap_or("")),
         tr.search_placeholder,
+        tr.search_label,
         tr.search_submit
     )
 }
@@ -461,12 +388,15 @@ pub fn articles_index(
     } else {
         tr.all_articles
     };
-    w!(b, "<h2 class=\"h2\"><span class=\"h2-mark\">01</span>{}</h2>", heading);
+    w!(b, "<h2 class=\"h2\">{}</h2>", heading);
     w!(
         b,
         "<p class=\"section-sub\">{} {}</p>",
         articles.len(),
-        if chrome.lang == Lang::Ru { "записей в индексе" } else { "entries in the index" }
+        match chrome.lang {
+            Lang::Ru => i18n::ru_plural(articles.len() as i64, "запись", "записи", "записей"),
+            Lang::En => if articles.len() == 1 { "entry" } else { "entries" },
+        }
     );
     b.push_str("</div>\n");
     b.push_str(&search_box(chrome, query));
@@ -484,7 +414,7 @@ pub fn articles_index(
             let on = active_tag == Some(slug.as_str());
             w!(
                 b,
-                "<a class=\"chip{}\" href=\"{}/tags/{}\">{} <span class=\"chip-n\">{}</span></a>",
+                "<a class=\"chip{}\" href=\"{}/tags/{}\">{}<span class=\"chip-n\"> ({})</span></a>",
                 if on { " chip-on" } else { "" },
                 chrome.lang.prefix(),
                 slug,
@@ -499,8 +429,8 @@ pub fn articles_index(
         w!(b, "<p class=\"empty\">{}</p>", if query.is_some() { tr.search_empty } else { tr.empty_state });
     } else {
         b.push_str("<ol class=\"rows\">");
-        for (i, a) in articles.iter().enumerate() {
-            b.push_str(&article_row(chrome, i + 1, a));
+        for a in articles {
+            b.push_str(&article_row(chrome, a));
         }
         b.push_str("</ol>");
         if query.is_some() {
@@ -538,10 +468,7 @@ pub fn article_page(
         tr.nav_articles
     );
     b.push_str("<header class=\"article-head\">\n");
-    b.push_str("<div class=\"article-tags\">");
-    if article.featured {
-        w!(b, "<span class=\"chip chip-hot\">{}</span>", tr.featured);
-    }
+    b.push_str("<p class=\"article-tags\">");
     for (tag, slug) in article.tag_list().iter().zip(article.tag_slugs()) {
         w!(
             b,
@@ -551,22 +478,21 @@ pub fn article_page(
             esc(tag)
         );
     }
-    b.push_str("</div>\n");
+    b.push_str("</p>\n");
     w!(b, "<h1 class=\"article-title\">{}</h1>\n", esc(&article.title));
     w!(b, "<p class=\"article-sum\">{}</p>\n", esc(&article.summary));
     b.push_str("<div class=\"article-meta\">");
     w!(
         b,
-        "<span><span class=\"label\">{}</span><time datetime=\"{}\">{}</time></span>",
-        tr.published_on,
+        "<span><time datetime=\"{}\">{}</time></span>",
         article.date_iso(),
         article.date_iso()
     );
-    w!(b, "<span><span class=\"label\">READ</span>{} {}</span>", article.reading_time(), tr.min_short);
+    w!(b, "<span>{} {}</span>", article.reading_time(), tr.min_short);
     if article.updated_at > article.published_at + 60 {
         w!(
             b,
-            "<span><span class=\"label\">{}</span>{}</span>",
+            "<span>{} {}</span>",
             tr.updated_on,
             article.edit_date_iso()
         );
@@ -590,10 +516,9 @@ pub fn article_page(
         for item in &rendered.toc {
             w!(
                 b,
-                "<li class=\"toc-l{}\"><a href=\"#{}\"><span class=\"toc-n\">{}</span>{}</a></li>",
+                "<li class=\"toc-l{}\"><a href=\"#{}\">{}</a></li>",
                 item.level,
                 esc(&item.id),
-                if item.level == 3 { "·" } else { "→" },
                 esc(&item.title)
             );
         }
@@ -607,9 +532,7 @@ pub fn article_page(
     b.push_str("<footer class=\"article-foot\">");
     w!(
         b,
-        "<span class=\"label\">EOF</span><span>{} {} · {} {}</span>",
-        article.reading_time(),
-        tr.min_short,
+        "<span>{} {}</span>",
         article.body_md.split_whitespace().count(),
         if chrome.lang == Lang::Ru { "слов" } else { "words" }
     );
@@ -618,10 +541,10 @@ pub fn article_page(
 
     if !related.is_empty() {
         b.push_str("<section class=\"section related\">\n");
-        w!(b, "<h2 class=\"h2\"><span class=\"h2-mark\">02</span>{}</h2>", tr.related);
+        w!(b, "<h2 class=\"h2\">{}</h2>", tr.related);
         b.push_str("<ol class=\"rows\">");
-        for (i, a) in related.iter().enumerate() {
-            b.push_str(&article_row(chrome, i + 1, a));
+        for a in related {
+            b.push_str(&article_row(chrome, a));
         }
         b.push_str("</ol></section>\n");
     }
@@ -653,9 +576,10 @@ pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)])
         Lang::En => (&p.manifesto_en, &p.now_en, &p.role_en),
     };
     let mut b = String::new();
-    b.push_str("<section class=\"section section-first\">\n<div class=\"about-grid\">\n<div>\n");
-    w!(b, "<h1 class=\"display display-sm\"><span>{}</span></h1>", tr.about_title);
-    w!(b, "<p class=\"lede\">{}</p>", esc(role));
+    b.push_str("<section class=\"about\">\n");
+    w!(b, "<h1 class=\"display display-sm\">{}</h1>\n", tr.about_title);
+    w!(b, "<p class=\"lede\">{}</p>\n", esc(role));
+
     w!(
         b,
         "<div class=\"manifesto\"><span class=\"label\">{}</span><p>{}</p></div>",
@@ -668,27 +592,39 @@ pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)])
         tr.about_now,
         esc(now)
     );
-    b.push_str("</div>\n<aside class=\"spec spec-tall\">\n");
-    w!(b, "<div class=\"spec-head\"><span>DOSSIER</span><span class=\"spec-live\">VERIFIED</span></div>\n");
-    b.push_str("<dl class=\"spec-list\">");
-    w!(b, "<div><dt>NAME</dt><dd>{}</dd></div>", esc(&p.owner_name));
-    w!(b, "<div><dt>HANDLE</dt><dd>{}</dd></div>", esc(&p.handle));
-    w!(b, "<div><dt>LOC</dt><dd>{}</dd></div>", esc(&p.location));
-    w!(b, "<div><dt>ENTRIES</dt><dd>{:02}</dd></div>", articles);
-    w!(b, "<div><dt>TAGS</dt><dd>{:02}</dd></div>", tags.len());
-    w!(b, "<div><dt>LICENSE</dt><dd>RZ-NC-1.0</dd></div>");
-    b.push_str("</dl>\n<div class=\"spec-body\">");
-    w!(b, "<span class=\"label\">{}</span><p>{}</p>", tr.about_stack, tr.about_stack_text);
-    w!(b, "<span class=\"label\">{}</span><p>{}</p>", tr.about_license, tr.about_license_text);
-    b.push_str("</div>\n</aside>\n</div>\n");
+
+    w!(
+        b,
+        "<div class=\"manifesto\"><span class=\"label\">{}</span><p>{}</p></div>",
+        tr.about_stack,
+        tr.about_stack_text
+    );
+    w!(
+        b,
+        "<div class=\"manifesto\"><span class=\"label\">{}</span><p>{} · {} {} · {} {}</p></div>",
+        tr.about_license,
+        tr.about_license_text,
+        articles,
+        match chrome.lang {
+            Lang::Ru => i18n::ru_plural(articles, "запись", "записи", "записей"),
+            Lang::En => if articles == 1 { "entry" } else { "entries" },
+        },
+        tags.len(),
+        match chrome.lang {
+            Lang::Ru => i18n::ru_plural(tags.len() as i64, "тег", "тега", "тегов"),
+            Lang::En => if tags.len() == 1 { "tag" } else { "tags" },
+        }
+    );
+
     b.push_str("<div class=\"contact\">");
-    w!(b, "<h2 class=\"h2\"><span class=\"h2-mark\">02</span>{}</h2>", tr.about_contact);
+    w!(b, "<h2 class=\"h2\">{}</h2>", tr.about_contact);
     b.push_str("<ul class=\"contact-list\">");
     for (label, value, href) in [
-        ("MAIL", p.email.clone(), format!("mailto:{}", p.email)),
-        ("GITHUB", p.github.clone(), p.github.clone()),
-        ("TELEGRAM", p.telegram.clone(), p.telegram.clone()),
-        ("MATRIX", p.matrix.clone(), String::new()),
+        ("Email", p.email.clone(), format!("mailto:{}", p.email)),
+        ("GitHub", p.github.clone(), p.github.clone()),
+        ("Telegram", p.telegram.clone(), p.telegram.clone()),
+        ("Matrix", p.matrix.clone(), String::new()),
+        ("Location", p.location.clone(), String::new()),
     ] {
         if value.trim().is_empty() {
             continue;
@@ -696,7 +632,7 @@ pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)])
         if href.starts_with("http") || href.starts_with("mailto") {
             w!(b, "<li><span class=\"label\">{}</span><a href=\"{}\" rel=\"me noopener\">{}</a></li>", label, esc(&href), esc(&value));
         } else {
-            w!(b, "<li><span class=\"label\">{}</span><code>{}</code></li>", label, esc(&value));
+            w!(b, "<li><span class=\"label\">{}</span><span>{}</span></li>", label, esc(&value));
         }
     }
     b.push_str("</ul></div>\n</section>");
@@ -710,12 +646,12 @@ pub fn login(chrome: &Chrome<'_>, error: Option<&str>, csrf: &str, rate_limited:
     let tr = chrome.t();
     let mut b = String::new();
     b.push_str("<section class=\"auth\">\n<div class=\"auth-card\">\n");
-    w!(b, "<div class=\"spec-head\"><span>AUTH // OWNER</span><span class=\"spec-live\">{}</span></div>\n", if rate_limited { "LOCKED" } else { "READY" });
     w!(b, "<h1 class=\"auth-title\">{}</h1>", tr.login_title);
     w!(b, "<p class=\"auth-hint\">{}</p>", tr.login_hint);
     if let Some(msg) = error {
         w!(b, "<p class=\"alert\" role=\"alert\">{}</p>", esc(msg));
     }
+    let _ = rate_limited;
     w!(b, "<form method=\"post\" action=\"/login\" class=\"form\">");
     w!(b, "<input type=\"hidden\" name=\"csrf\" value=\"{}\">", esc(csrf));
     w!(
@@ -732,7 +668,7 @@ pub fn login(chrome: &Chrome<'_>, error: Option<&str>, csrf: &str, rate_limited:
     b.push_str("</form>\n");
     w!(
         b,
-        "<p class=\"auth-foot\"><a href=\"{}\">← {}</a><span>PBKDF2 · 210K · SHA-256</span></p>",
+        "<p class=\"auth-foot\"><a href=\"{}\">← {}</a></p>",
         chrome.href("home"),
         tr.not_found_cta
     );
@@ -751,15 +687,15 @@ pub fn login(chrome: &Chrome<'_>, error: Option<&str>, csrf: &str, rate_limited:
 fn cabinet_nav(active: &str) -> String {
     let mut h = String::from("<nav class=\"side\" aria-label=\"Cabinet\">");
     let items = [
-        ("overview", "Обзор / Overview", "00"),
-        ("articles", "Записи / Entries", "01"),
-        ("new", "Новая / New", "02"),
-        ("profile", "Профиль / Profile", "03"),
-        ("telemetry", "Метрики / Metrics", "04"),
-        ("security", "Доступ / Access", "05"),
-        ("backup", "Бэкап / Backup", "06"),
+        ("overview", "Overview"),
+        ("articles", "Entries"),
+        ("new", "New"),
+        ("profile", "Profile"),
+        ("telemetry", "Metrics"),
+        ("security", "Access"),
+        ("backup", "Backup"),
     ];
-    for (key, label, num) in items {
+    for (key, label) in items {
         let href = match key {
             "overview" => "/cabinet".to_string(),
             "new" => "/cabinet/articles/new".to_string(),
@@ -767,7 +703,7 @@ fn cabinet_nav(active: &str) -> String {
         };
         w!(
             h,
-            "<a class=\"side-link{}\" href=\"{}\"><span>{num}</span>{label}</a>",
+            "<a class=\"side-link{}\" href=\"{}\">{label}</a>",
             if active == key { " side-on" } else { "" },
             href
         );
@@ -787,19 +723,9 @@ pub fn cabinet_shell(chrome: &Chrome<'_>, active: &str, title: &str, body: &str,
     h.push_str(&header(chrome));
     h.push_str("<main id=\"main\" class=\"shell cabinet\">\n");
     h.push_str("<div class=\"cab-top\">");
-    w!(
-        h,
-        "<div><span class=\"label\">{}</span><h1 class=\"cab-title\">{}</h1></div>",
-        tr.cabinet,
-        esc(title)
-    );
-    w!(
-        h,
-        "<div class=\"cab-top-tools\"><span class=\"pill\">{} · {}</span>",
-        tr.cabinet_owner,
-        esc(&chrome.profile.handle)
-    );
-    h.push_str("<form method=\"post\" action=\"/logout\" class=\"inline\"><button class=\"btn btn-mini\" type=\"submit\">");
+    w!(h, "<h1 class=\"cab-title\">{}</h1>", esc(title));
+    h.push_str("<div class=\"cab-top-tools\">");
+    h.push_str("<form method=\"post\" action=\"/logout\" class=\"inline\"><button class=\"tool\" type=\"submit\">");
     h.push_str(tr.cabinet_logout);
     h.push_str("</button></form></div></div>\n");
     if let Some(msg) = flash {
@@ -833,33 +759,32 @@ pub fn cabinet_overview(
     let tr = chrome.t();
     let mut b = String::new();
     b.push_str("<div class=\"stats\">");
-    b.push_str(&stat_card(tr.cabinet_articles, &format!("{:02}", stats.articles), "total"));
-    b.push_str(&stat_card("PUBLISHED", &format!("{:02}", stats.published), "live"));
-    b.push_str(&stat_card("DRAFTS", &format!("{:02}", stats.drafts), "wip"));
-    b.push_str(&stat_card("VIEWS", &fmt_num(stats.views), "logged"));
+    b.push_str(&stat_card(tr.cabinet_articles, &stats.articles.to_string(), "total"));
+    b.push_str(&stat_card("Published", &stats.published.to_string(), "live"));
+    b.push_str(&stat_card("Drafts", &stats.drafts.to_string(), "unpublished"));
+    b.push_str(&stat_card("Views", &fmt_num(stats.views), "logged"));
     b.push_str("</div>\n");
 
-    b.push_str("<section class=\"panel\">\n<div class=\"panel-head\"><span>RENDER</span><span>µs</span></div>");
-    b.push_str("<div class=\"stats stats-3\">");
-    b.push_str(&stat_card("AVG", &format!("{}", telemetry.avg_render_us), "microseconds"));
-    b.push_str(&stat_card("P95", &format!("{}", telemetry.p95_render_us), "microseconds"));
-    b.push_str(&stat_card("AVG BYTES", &fmt_num(telemetry.avg_bytes), "bytes"));
+    b.push_str("<section class=\"panel\">\n<div class=\"panel-head\"><span>Render time</span><span>microseconds</span></div>");
+    b.push_str("<div class=\"stats\">");
+    b.push_str(&stat_card("Average", &telemetry.avg_render_us.to_string(), "per request"));
+    b.push_str(&stat_card("p95", &telemetry.p95_render_us.to_string(), "per request"));
+    b.push_str(&stat_card("Payload", &fmt_num(telemetry.avg_bytes), "average bytes"));
     b.push_str("</div></section>\n");
 
-    b.push_str("<section class=\"panel\">\n<div class=\"panel-head\"><span>RECENT</span>");
-    w!(b, "<a href=\"/cabinet/articles/new\">+ {}</a></div>\n", tr.cabinet_new_article);
+    b.push_str("<section class=\"panel\">\n<div class=\"panel-head\"><span>Recent</span>");
+    w!(b, "<a href=\"/cabinet/articles/new\">{}</a></div>\n", tr.cabinet_new_article);
     if recent.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
     } else {
-        b.push_str("<table class=\"tbl\"><thead><tr><th>ID</th><th>LANG</th><th>TITLE</th><th>STATUS</th><th>UPDATED</th><th></th></tr></thead><tbody>");
+        b.push_str("<table class=\"tbl\"><thead><tr><th>Title</th><th>Language</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>");
         for a in recent {
             w!(
                 b,
-                "<tr><td class=\"mono\">{:03}</td><td class=\"mono up\">{}</td><td><a href=\"/cabinet/articles/{}\">{}</a></td><td><span class=\"tag tag-{}\">{}</span></td><td class=\"mono\">{}</td><td class=\"mono\"><a href=\"{}/articles/{}\" target=\"_blank\" rel=\"noopener\">VIEW</a></td></tr>",
-                a.id,
-                a.lang,
+                "<tr><td><a href=\"/cabinet/articles/{}\">{}</a></td><td class=\"dim\">{}</td><td><span class=\"tag tag-{}\">{}</span></td><td class=\"dim\">{}</td><td class=\"right\"><a class=\"dim\" href=\"{}/articles/{}\" target=\"_blank\" rel=\"noopener\">View</a></td></tr>",
                 a.id,
                 esc(&a.title),
+                a.lang,
                 a.status,
                 a.status,
                 a.edit_date_iso(),
@@ -876,40 +801,35 @@ pub fn cabinet_overview(
 pub fn cabinet_articles(chrome: &Chrome<'_>, articles: &[Article], flash: Option<&str>) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"panel\">\n<div class=\"panel-head\"><span>ENTRIES</span>");
-    w!(b, "<a href=\"/cabinet/articles/new\">+ {}</a></div>\n", tr.cabinet_new_article);
+    b.push_str("<section class=\"panel\">\n<div class=\"panel-head\"><span>Entries</span>");
+    w!(b, "<a href=\"/cabinet/articles/new\">{}</a></div>\n", tr.cabinet_new_article);
     if articles.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
     } else {
-        b.push_str("<table class=\"tbl\"><thead><tr><th>ID</th><th>LANG</th><th>TITLE</th><th>STATUS</th><th>FEAT</th><th>VIEWS</th><th>PUBLISHED</th><th>OPS</th></tr></thead><tbody>");
+        b.push_str("<table class=\"tbl\"><thead><tr><th>Title</th><th>Language</th><th>Status</th><th>Views</th><th>Published</th><th></th></tr></thead><tbody>");
         for a in articles {
             w!(
                 b,
-                "<tr><td class=\"mono\">{:03}</td><td class=\"mono up\">{}</td><td><a href=\"/cabinet/articles/{}\">{}</a><br><span class=\"mono dim\">{}/articles/{}</span></td><td><span class=\"tag tag-{}\">{}</span></td><td class=\"mono\">{}</td><td class=\"mono\">{}</td><td class=\"mono\">{}</td>",
-                a.id,
-                a.lang,
+                "<tr><td><a href=\"/cabinet/articles/{}\">{}</a></td><td class=\"dim\">{}</td><td><span class=\"tag tag-{}\">{}</span></td><td class=\"dim\">{}</td><td class=\"dim\">{}</td><td class=\"ops right\">",
                 a.id,
                 esc(&a.title),
-                a.lang_enum().prefix(),
-                esc(&a.slug),
+                a.lang,
                 a.status,
                 a.status,
-                if a.featured { "★" } else { "·" },
                 a.views,
                 if a.published_at > 0 { a.date_iso() } else { "—".to_string() }
             );
-            b.push_str("<td class=\"ops\">");
             let next_status = if a.is_published() { "draft" } else { "published" };
             w!(
                 b,
-                "<form method=\"post\" action=\"/cabinet/articles/{}/status\" class=\"inline\"><input type=\"hidden\" name=\"status\" value=\"{}\"><button class=\"btn btn-mini\" type=\"submit\">{}</button></form>",
+                "<form method=\"post\" action=\"/cabinet/articles/{}/status\" class=\"inline\"><input type=\"hidden\" name=\"status\" value=\"{}\"><button class=\"link-btn\" type=\"submit\">{}</button></form>",
                 a.id,
                 next_status,
                 if a.is_published() { tr.cabinet_unpublish } else { tr.cabinet_publish }
             );
             w!(
                 b,
-                "<form method=\"post\" action=\"/cabinet/articles/{}/delete\" class=\"inline\" data-confirm=\"{}\"><button class=\"btn btn-mini btn-danger\" type=\"submit\">{}</button></form>",
+                "<form method=\"post\" action=\"/cabinet/articles/{}/delete\" class=\"inline\" data-confirm=\"{}\"><button class=\"link-btn danger\" type=\"submit\">{}</button></form>",
                 a.id,
                 tr.cabinet_confirm_delete,
                 tr.cabinet_delete
@@ -968,12 +888,6 @@ pub fn cabinet_editor(
         }
         b.push_str("</div>");
     }
-    w!(
-        b,
-        "<section class=\"panel\">\n<div class=\"panel-head\"><span>{}</span><span class=\"mono\">{}</span></div>\n",
-        if id > 0 { "EDIT" } else { "NEW" },
-        if id > 0 { format!("#{id:03}") } else { "#---".to_string() }
-    );
     w!(b, "<form method=\"post\" action=\"{}\" class=\"form editor\">", action);
     if id > 0 {
         w!(b, "<input type=\"hidden\" name=\"id\" value=\"{id}\">");
@@ -982,7 +896,7 @@ pub fn cabinet_editor(
     b.push_str("<div class=\"form-grid\">");
     w!(
         b,
-        "<label class=\"field field-wide\"><span class=\"label\">{}</span><input name=\"title\" type=\"text\" required value=\"{}\" maxlength=\"180\"></label>",
+        "<label class=\"field field-full\"><span class=\"label\">{}</span><input name=\"title\" type=\"text\" required value=\"{}\" maxlength=\"180\"></label>",
         tr.field_title,
         esc(&title)
     );
@@ -1006,42 +920,35 @@ pub fn cabinet_editor(
     );
     w!(
         b,
-        "<label class=\"field field-wide\"><span class=\"label\">{}</span><input name=\"summary\" type=\"text\" value=\"{}\" maxlength=\"300\"></label>",
+        "<label class=\"field field-full\"><span class=\"label\">{}</span><input name=\"summary\" type=\"text\" value=\"{}\" maxlength=\"300\"></label>",
         tr.field_summary,
         esc(&summary)
     );
     w!(
         b,
-        "<label class=\"field field-wide\"><span class=\"label\">{}</span><input name=\"tags\" type=\"text\" value=\"{}\" placeholder=\"{}\" maxlength=\"200\"></label>",
+        "<label class=\"field\"><span class=\"label\">{}</span><input name=\"tags\" type=\"text\" value=\"{}\" placeholder=\"{}\" maxlength=\"200\"></label>",
         tr.field_tags,
         esc(&tag_str),
         tr.field_tags_hint
     );
     w!(
         b,
-        "<label class=\"field\"><span class=\"label\">{} <span class=\"hint\">auto</span></span><input name=\"translation_key\" type=\"text\" value=\"{}\" maxlength=\"64\" placeholder=\"link RU↔EN\"></label>",
+        "<label class=\"field\"><span class=\"label\">{}</span><input name=\"translation_key\" type=\"text\" value=\"{}\" maxlength=\"64\" placeholder=\"RU ↔ EN\"></label>",
         tr.field_translation_key,
         esc(&key)
     );
-    if !tags.is_empty() {
-        b.push_str("<div class=\"chips chips-hint\">");
-        for (tag, _, _) in tags.iter().take(12) {
-            w!(b, "<button class=\"chip\" type=\"button\" data-tag=\"{}\">{}</button>", esc(tag), esc(tag));
-        }
-        b.push_str("</div>");
-    }
     w!(
         b,
-        "<label class=\"field field-full\"><span class=\"label\">{} <span class=\"hint\">{}</span></span><textarea name=\"body_md\" rows=\"22\" spellcheck=\"false\" data-editor>{}</textarea><span class=\"field-foot\"><span data-count>0</span> chars · <span data-read>0</span> min</span></label>",
+        "<label class=\"field field-full\"><span class=\"label\">{}</span><textarea name=\"body_md\" rows=\"22\" spellcheck=\"false\" data-editor>{}</textarea><span class=\"field-foot\"><span data-count>0</span> characters · <span data-read>0</span> min read</span></label>",
         tr.field_body,
-        tr.field_body_hint,
         esc(&body)
     );
     b.push_str("</div><div class=\"form-actions\">");
     w!(
         b,
-        "<label class=\"switch\"><input type=\"checkbox\" name=\"featured\" value=\"1\"{}><span>FEATURED</span></label>",
-        if featured { " checked" } else { "" }
+        "<label class=\"switch\"><input type=\"checkbox\" name=\"featured\" value=\"1\"{}><span>{}</span></label>",
+        if featured { " checked" } else { "" },
+        tr.featured
     );
     b.push_str("<div class=\"form-actions-right\">");
     w!(
@@ -1053,17 +960,18 @@ pub fn cabinet_editor(
         tr.cabinet_publish
     );
     w!(b, "<button class=\"btn btn-solid\" type=\"submit\">{}</button>", tr.cabinet_save);
-    b.push_str("</div></div></form></section>");
+    b.push_str("</div></div></form>");
     if let Some(a) = article {
-        b.push_str("<section class=\"panel panel-flat\">");
+        b.push_str("<section class=\"panel\">");
         w!(
             b,
-            "<div class=\"panel-head\"><span>PREVIEW</span><a href=\"{}/articles/{}\" target=\"_blank\" rel=\"noopener\">OPEN ↗</a></div>\n<div class=\"prose prose-preview\">{}</div></section>",
+            "<div class=\"panel-head\"><span>Preview</span><a href=\"{}/articles/{}\" target=\"_blank\" rel=\"noopener\">Open</a></div>\n<div class=\"prose\">{}</div></section>",
             a.lang_enum().prefix(),
             esc(&a.slug),
             render_markdown(&a.body_md).html
         );
     }
+    let _ = tags;
     cabinet_shell(
         chrome,
         if id > 0 { "articles" } else { "new" },
@@ -1076,48 +984,46 @@ pub fn cabinet_editor(
 pub fn cabinet_profile(chrome: &Chrome<'_>, p: &Profile, flash: Option<&str>) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>PROFILE</span><span>SITE MANIFEST</span></div>");
     b.push_str("<form method=\"post\" action=\"/cabinet/profile\" class=\"form\">");
     b.push_str("<div class=\"form-grid\">");
     let text_fields = [
-        ("owner_name", "OWNER NAME", &p.owner_name, "field"),
-        ("handle", "HANDLE", &p.handle, "field"),
-        ("location", "LOCATION", &p.location, "field"),
-        ("email", "EMAIL", &p.email, "field"),
-        ("github", "GITHUB", &p.github, "field"),
-        ("telegram", "TELEGRAM", &p.telegram, "field"),
-        ("matrix", "MATRIX", &p.matrix, "field"),
-        ("site_url", "SITE URL", &p.site_url, "field"),
-        ("role_ru", "ROLE (RU)", &p.role_ru, "field field-wide"),
-        ("role_en", "ROLE (EN)", &p.role_en, "field field-wide"),
+        ("owner_name", "Name", &p.owner_name),
+        ("handle", "Handle", &p.handle),
+        ("location", "Location", &p.location),
+        ("email", "Email", &p.email),
+        ("github", "GitHub", &p.github),
+        ("telegram", "Telegram", &p.telegram),
+        ("matrix", "Matrix", &p.matrix),
+        ("site_url", "Site URL", &p.site_url),
+        ("role_ru", "Role (RU)", &p.role_ru),
+        ("role_en", "Role (EN)", &p.role_en),
     ];
-    for (name, label, value, class) in text_fields {
+    for (name, label, value) in text_fields {
         w!(
             b,
-            "<label class=\"{}\"><span class=\"label\">{}</span><input name=\"{}\" type=\"text\" value=\"{}\"></label>",
-            class,
+            "<label class=\"field\"><span class=\"label\">{}</span><input name=\"{}\" type=\"text\" value=\"{}\"></label>",
             label,
             name,
             esc(value)
         );
     }
     for (name, label, value) in [
-        ("manifesto_ru", "MANIFESTO (RU)", &p.manifesto_ru),
-        ("manifesto_en", "MANIFESTO (EN)", &p.manifesto_en),
-        ("now_ru", "NOW (RU)", &p.now_ru),
-        ("now_en", "NOW (EN)", &p.now_en),
+        ("manifesto_ru", "Manifesto (RU)", &p.manifesto_ru),
+        ("manifesto_en", "Manifesto (EN)", &p.manifesto_en),
+        ("now_ru", "Now (RU)", &p.now_ru),
+        ("now_en", "Now (EN)", &p.now_en),
     ] {
         w!(
             b,
-            "<label class=\"field field-full\"><span class=\"label\">{}</span><textarea name=\"{}\" rows=\"4\">{}</textarea></label>",
+            "<label class=\"field field-full\"><span class=\"label\">{}</span><textarea name=\"{}\" rows=\"3\">{}</textarea></label>",
             label,
             name,
             esc(value)
         );
     }
-    b.push_str("</div><div class=\"form-actions\"><span class=\"hint\">manifesto → hero copy</span>");
+    b.push_str("</div><div class=\"form-actions\">");
     w!(b, "<button class=\"btn btn-solid\" type=\"submit\">{}</button>", tr.cabinet_save);
-    b.push_str("</div></form></section>");
+    b.push_str("</div></form>");
     cabinet_shell(chrome, "profile", tr.cabinet_profile, &b, flash)
 }
 
@@ -1125,14 +1031,14 @@ pub fn cabinet_telemetry(chrome: &Chrome<'_>, tele: &Telemetry, flash: Option<&s
     let tr = chrome.t();
     let mut b = String::new();
     b.push_str("<div class=\"stats\">");
-    b.push_str(&stat_card("TOTAL", &fmt_num(tele.total_views), "requests"));
-    b.push_str(&stat_card("24H", &fmt_num(tele.views_today), "requests"));
-    b.push_str(&stat_card("UNIQUE 24H", &fmt_num(tele.uniques_today), "visitors"));
-    b.push_str(&stat_card("BOTS", &format!("{}%", tele.bot_share), "share"));
+    b.push_str(&stat_card("Views", &fmt_num(tele.total_views), "all time"));
+    b.push_str(&stat_card("24 hours", &fmt_num(tele.views_today), "requests"));
+    b.push_str(&stat_card("Visitors", &fmt_num(tele.uniques_today), "unique, 24h"));
+    b.push_str(&stat_card("Bots", &format!("{}%", tele.bot_share), "of traffic"));
     b.push_str("</div>\n");
 
     let max = tele.daily.iter().map(|(_, n)| *n).max().unwrap_or(1).max(1);
-    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>14 DAYS</span><span>requests / day</span></div>");
+    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>Last 14 days</span><span>requests</span></div>");
     b.push_str("<div class=\"bars\">");
     for (day, n) in &tele.daily {
         let height = ((*n as f64 / max as f64) * 100.0).round() as i64;
@@ -1148,20 +1054,20 @@ pub fn cabinet_telemetry(chrome: &Chrome<'_>, tele: &Telemetry, flash: Option<&s
     b.push_str("</div>");
     w!(
         b,
-        "<p class=\"panel-foot\">avg <b>{} µs</b> · p95 <b>{} µs</b> · avg payload <b>{} B</b></p>",
+        "<p class=\"panel-foot\">Average render <b>{} µs</b> · p95 <b>{} µs</b> · average payload <b>{} B</b></p>",
         tele.avg_render_us,
         tele.p95_render_us,
         tele.avg_bytes
     );
     b.push_str("</section>\n");
 
-    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>TOP PATHS</span><span>count</span></div>");
+    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>Top paths</span><span>requests</span></div>");
     if tele.top_paths.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
     } else {
         b.push_str("<table class=\"tbl\"><tbody>");
         for (path, n) in &tele.top_paths {
-            w!(b, "<tr><td class=\"mono\">{}</td><td class=\"mono right\">{}</td></tr>", esc(path), n);
+            w!(b, "<tr><td class=\"dim\">{}</td><td class=\"dim right\">{}</td></tr>", esc(path), n);
         }
         b.push_str("</tbody></table>");
     }
@@ -1180,39 +1086,36 @@ pub fn cabinet_security(
     if let Some(e) = error {
         w!(b, "<p class=\"alert\" role=\"alert\">{}</p>", esc(e));
     }
-    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>SESSIONS</span><span>SHA-256 token hashes</span></div>");
-    b.push_str("<table class=\"tbl\"><thead><tr><th>STATE</th><th>CREATED</th><th>LAST</th><th>EXPIRES</th><th>AGENT</th><th>OPS</th></tr></thead><tbody>");
+    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>Sessions</span><span>hashed tokens</span></div>");
+    b.push_str("<table class=\"tbl\"><thead><tr><th>State</th><th>Last active</th><th>Expires</th><th>Device</th><th></th></tr></thead><tbody>");
     for s in sessions {
         w!(
             b,
-            "<tr><td>{}</td><td class=\"mono\">{}</td><td class=\"mono\">{}</td><td class=\"mono\">{}</td><td class=\"mono dim\">{}</td><td>",
-            if s.current { "<span class=\"tag tag-current\">CURRENT</span>" } else { "<span class=\"tag\">ACTIVE</span>" },
-            i18n::format_date_utc(s.created_at),
+            "<tr><td>{}</td><td class=\"dim\">{}</td><td class=\"dim\">{}</td><td class=\"dim\">{}</td><td class=\"right\">",
+            if s.current { "<span class=\"tag tag-current\">This device</span>" } else { "<span class=\"tag\">Active</span>" },
             i18n::format_datetime_utc(s.last_seen),
             i18n::format_date_utc(s.expires_at),
-            esc(&crate::http::truncate_chars(&s.ua, 48))
+            esc(&crate::http::truncate_chars(&s.ua, 40))
         );
         if !s.current {
             w!(
                 b,
-                "<form method=\"post\" action=\"/cabinet/security/revoke\" class=\"inline\"><input type=\"hidden\" name=\"token\" value=\"{}\"><button class=\"btn btn-mini\" type=\"submit\">{}</button></form>",
+                "<form method=\"post\" action=\"/cabinet/security/revoke\" class=\"inline\"><input type=\"hidden\" name=\"token\" value=\"{}\"><button class=\"link-btn\" type=\"submit\">{}</button></form>",
                 esc(&s.token_hash),
                 tr.cabinet_revoke
             );
-        } else {
-            b.push_str("—");
         }
         b.push_str("</td></tr>");
     }
     b.push_str("</tbody></table>");
     w!(
         b,
-        "<form method=\"post\" action=\"/cabinet/security/revoke-all\" class=\"panel-actions\"><button class=\"btn\" type=\"submit\">{}</button><span class=\"hint\">keeps this session</span></form>",
+        "<form method=\"post\" action=\"/cabinet/security/revoke-all\" class=\"panel-actions\"><button class=\"link-btn\" type=\"submit\">{}</button></form>",
         tr.cabinet_revoke_others
     );
     b.push_str("</section>\n");
 
-    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>PASSWORD</span><span>PBKDF2-HMAC-SHA256 · 210 000</span></div>");
+    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>Password</span><span>PBKDF2-HMAC-SHA256</span></div>");
     b.push_str("<form method=\"post\" action=\"/cabinet/security/password\" class=\"form\">");
     b.push_str("<div class=\"form-grid\">");
     w!(
@@ -1230,7 +1133,7 @@ pub fn cabinet_security(
         "<label class=\"field\"><span class=\"label\">{}</span><input name=\"repeat\" type=\"password\" autocomplete=\"new-password\" minlength=\"12\" required></label>",
         tr.cabinet_repeat_password
     );
-    b.push_str("</div><div class=\"form-actions\"><span class=\"hint\">min 12 chars · all other sessions revoked</span>");
+    b.push_str("</div><div class=\"form-actions\">");
     w!(b, "<button class=\"btn btn-solid\" type=\"submit\">{}</button>", tr.cabinet_change_password);
     b.push_str("</div></form></section>");
     cabinet_shell(chrome, "security", tr.cabinet_security, &b, flash)
@@ -1240,19 +1143,18 @@ pub fn cabinet_backup(chrome: &Chrome<'_>, stats: &BackupStats, flash: Option<&s
     let tr = chrome.t();
     let mut b = String::new();
     b.push_str("<div class=\"stats\">");
-    b.push_str(&stat_card("ARTICLES", &format!("{}", stats.articles), "exported"));
-    b.push_str(&stat_card("PUBLISHED", &format!("{}", stats.published), "live"));
-    b.push_str(&stat_card("DRAFTS", &format!("{}", stats.drafts), "included"));
-    b.push_str(&stat_card("VIEWS", &fmt_num(stats.views), "logged"));
+    b.push_str(&stat_card("Entries", &stats.articles.to_string(), "exported"));
+    b.push_str(&stat_card("Published", &stats.published.to_string(), "live"));
+    b.push_str(&stat_card("Drafts", &stats.drafts.to_string(), "included"));
+    b.push_str(&stat_card("Views", &fmt_num(stats.views), "logged"));
     b.push_str("</div>\n");
-    b.push_str("<section class=\"panel\"><div class=\"panel-head\"><span>EXPORT</span><span>application/json</span></div>");
+    b.push_str("<section class=\"panel\">");
     w!(b, "<p class=\"panel-note\">{}</p>", tr.cabinet_export_hint);
     w!(
         b,
-        "<p><a class=\"btn btn-solid\" href=\"/cabinet/backup.json\" download=\"rudolfzinovev-backup.json\">{}</a></p>",
+        "<p><a class=\"btn\" href=\"/cabinet/backup.json\" download=\"rudolfzinovev-backup.json\">{}</a></p>",
         tr.cabinet_download
     );
-    b.push_str("<div class=\"code-frame\"><div class=\"code-bar\"><span class=\"code-lang\">[SHELL]</span><span class=\"code-meta\">BACKUP</span></div><pre><code>curl -sS -H \"Cookie: rz_session=$RZ_TOKEN\" \\\n  https://rudolfzinovev.me/cabinet/backup.json \\\n  &gt; backup-$(date +%F).json\nsqlite3 data/site.sqlite \".backup 'data/backup.sqlite'\"</code></pre></div>");
     b.push_str("</section>");
     cabinet_shell(chrome, "backup", tr.cabinet_backup, &b, flash)
 }
@@ -1262,10 +1164,10 @@ pub fn cabinet_backup(chrome: &Chrome<'_>, stats: &BackupStats, flash: Option<&s
 pub fn not_found(chrome: &Chrome<'_>) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"err\">\n<div class=\"err-code\">404</div><div>");
+    b.push_str("<section class=\"err\">\n<div class=\"err-code\">404</div><div class=\"err-body\">");
     w!(b, "<h1 class=\"err-title\">{}</h1>", tr.not_found_title);
     w!(b, "<p class=\"err-text\">{}</p>", tr.not_found_text);
-    w!(b, "<a class=\"btn btn-solid\" href=\"{}\">{}</a>", chrome.href("home"), tr.not_found_cta);
+    w!(b, "<a href=\"{}\">{} →</a>", chrome.href("home"), tr.not_found_cta);
     b.push_str("</div></section>");
     let mut h = head(chrome, &format!("404 — {}", chrome.profile.owner_name), tr.not_found_text, true);
     h.push_str(&header(chrome));
@@ -1279,10 +1181,10 @@ pub fn not_found(chrome: &Chrome<'_>) -> String {
 pub fn server_error(chrome: &Chrome<'_>) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"err\">\n<div class=\"err-code\">500</div><div>");
+    b.push_str("<section class=\"err\">\n<div class=\"err-code\">500</div><div class=\"err-body\">");
     w!(b, "<h1 class=\"err-title\">{}</h1>", tr.server_error_title);
     w!(b, "<p class=\"err-text\">{}</p>", tr.server_error_text);
-    w!(b, "<a class=\"btn btn-solid\" href=\"{}\">{}</a>", chrome.href("home"), tr.not_found_cta);
+    w!(b, "<a href=\"{}\">{} →</a>", chrome.href("home"), tr.not_found_cta);
     b.push_str("</div></section>");
     let mut h = head(chrome, &format!("500 — {}", chrome.profile.owner_name), tr.server_error_text, true);
     h.push_str(&header(chrome));
@@ -1402,8 +1304,11 @@ mod tests {
         let html = home(&chrome(Lang::Ru), &[], &[], 8);
         assert!(html.starts_with("<!doctype html>"));
         assert!(html.contains("Rudolf"));
-        assert!(html.contains("data-render-us"));
+        // No decorative instrument blocks and no per-request markers survive.
         assert!(!html.contains("@@RENDER_US@@"));
+        assert!(!html.contains("data-render-us"));
+        assert!(!html.contains("ticker"));
+        assert!(!html.contains("SPEC //"));
         assert!(html.contains("data-theme=\"obsidian\""));
     }
 

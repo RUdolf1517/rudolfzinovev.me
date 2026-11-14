@@ -449,6 +449,20 @@ pub fn split_utc(ts: i64) -> (i64, u32, u32, u32, u32, u32) {
     (year, m, d, hh, mm, ss)
 }
 
+/// Russian plural form for a count: (1, 2-4, 5+) → "запись / записи / записей".
+pub fn ru_plural<'a>(n: i64, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
+    let n = n.abs();
+    let tail100 = n % 100;
+    if (11..=14).contains(&tail100) {
+        return many;
+    }
+    match n % 10 {
+        1 => one,
+        2..=4 => few,
+        _ => many,
+    }
+}
+
 pub fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -465,6 +479,17 @@ mod tests {
         assert_eq!(format_date_utc(0), "1970-01-01");
         assert_eq!(format_date_utc(1_700_000_000), "2023-11-14");
         assert_eq!(format_rfc2822_utc(1_700_000_000), "Tue, 14 Nov 2023 22:13:20 +0000");
+    }
+
+    #[test]
+    fn russian_plurals() {
+        let f = |n| ru_plural(n, "запись", "записи", "записей");
+        assert_eq!(f(1), "запись");
+        assert_eq!(f(3), "записи");
+        assert_eq!(f(5), "записей");
+        assert_eq!(f(11), "записей");
+        assert_eq!(f(21), "запись");
+        assert_eq!(f(104), "записи");
     }
 
     #[test]

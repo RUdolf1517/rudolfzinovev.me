@@ -1163,12 +1163,19 @@ mod tests {
     }
 
     #[test]
-    fn homepage_reports_render_time_and_is_compressible() {
+    fn homepage_is_compressible_and_reports_server_timing() {
         let app = temp_app("cache");
         let resp = app.handle(&request("GET", "/"));
         assert!(resp.is_compressible());
+        assert!(
+            resp.headers
+                .iter()
+                .any(|(k, v)| k == "Server-Timing" && v.contains("render")),
+            "HTML must carry a Server-Timing render header"
+        );
         let html = String::from_utf8(resp.body).unwrap();
-        assert!(html.contains("data-render-us"));
+        // The document stays byte-stable, so no per-request markers leak into it.
         assert!(!html.contains("@@RENDER_US@@"));
+        assert!(!html.contains("data-render-us"));
     }
 }
