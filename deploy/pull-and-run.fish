@@ -1,26 +1,41 @@
 #!/usr/bin/env fish
 #
-# pull-and-run.fish — забрать сайт с ветки и запустить его локально на маке.
+# pull-and-run.fish — скачать сайт с ветки и запустить его локально на маке.
 #
-# Что делает: pull нужной ветки → собрать релиз → освободить порт → запустить
-# сервер → дождаться /healthz → открыть браузер.
+# Скрипт самодостаточный: его НЕ нужно держать в репозитории. Положи файл
+# куда угодно (например ~/bin/pull-and-run.fish) и запускай откуда угодно —
+# он сам склонирует репозиторий или обновит уже склонированный.
+#
+#   curl -fsSL https://raw.githubusercontent.com/RUdolf1517/rudolfzinovev.me/arena/b9b8d4dd-rudolfzinovev-me/deploy/pull-and-run.fish -o ~/bin/pull-and-run.fish
+#   chmod +x ~/bin/pull-and-run.fish
+#   ~/bin/pull-and-run.fish
 #
 # Запуск:
-#   ./deploy/pull-and-run.fish              текущая ветка, порт 8080
-#   ./deploy/pull-and-run.fish -b main      другая ветка (дерево должно быть чистым)
-#   ./deploy/pull-and-run.fish -p 9090      другой порт
-#   ./deploy/pull-and-run.fish -n           без сборки, только перезапуск
-#   ./deploy/pull-and-run.fish -s           + сид демо-данных
-#   ./deploy/pull-and-run.fish -o ~/rz      свой каталог данных
-#   ./deploy/pull-and-run.fish -d           в фоне, без ожидания Ctrl-C
+#   pull-and-run.fish                 ветка по умолчанию, порт 8080, ~/rudolfzinovev.me
+#   pull-and-run.fish -b main         другая ветка
+#   pull-and-run.fish -p 9090         другой порт
+#   pull-and-run.fish -t ~/src/rz     другой каталог для клона
+#   pull-and-run.fish -n              без сборки, только перезапуск
+#   pull-and-run.fish -s              + сид демо-данных
+#   pull-and-run.fish -o ~/rzdata     свой каталог данных
+#   pull-and-run.fish -d              в фоне, без ожидания Ctrl-C
+#   pull-and-run.fish -k              упасть, если порт уже занят
 #
-# Ветку по умолчанию скрипт НЕ переключает: берёт ту, на которой ты стоишь,
-# чтобы не утащить незакоммиченные правки на чужую ветку.
-#
-# Слушает только 127.0.0.1 — снаружи машины сервер не виден.
+# Что делает: клонирует репозиторий (если его нет) или обновляет рабочую копию
+# на нужной ветке, собирает релиз, освобождает порт, запускает сервер,
+# ждёт /healthz и открывает браузер. Слушает только 127.0.0.1.
+
+# ------------------------------------------------------------------ константы
+
+set -g repo_url "https://github.com/RUdolf1517/rudolfzinovev.me.git"
+# Ветка по умолчанию — та, где лежит самая свежая работа. Когда её вльют в
+# main, скрипт это поймёт сам: пропадёт из origin — возьмёт main.
+set -g default_branch "arena/b9b8d4dd-rudolfzinovev-me"
+set -g fallback_branch "main"
 
 argparse --name=(status current-command) 'h/help' \
-    'b/branch=' 'p/port=8080' 'o/data=' 'w/workers=4' 'n/no-build' 'k/keep-old' 's/seed' 'd/detach' -- $argv
+    'b/branch=' 'p/port=8080' 't/target=' 'o/data=' 'w/workers=4' \
+    'n/no-build' 'k/keep-old' 's/seed' 'd/detach' -- $argv
 or begin
     printf 'см. %s --help\n' (status filename)
     exit 2
@@ -60,34 +75,52 @@ function tail_log --argument-names file
     end
 end
 
-# ---------------------------------------------------------------- настройки
+# Открывает ссылку в браузере на маке; тихо ничего не делает, если нельзя.
+function open_url --argument-names url
+    if command -q open
+        open $url 2>/dev/null
+    else if command -q xdg-open
+        xdg-open $url 2>/dev/null
+    end
+end
 
-# realpath на маке либо отсутствует, либо BSD-шный (без -m), поэтому корень
-# считаем через cd + pwd -P: это работает везде и разворачивает симлинки.
-set -l here (dirname (status filename))
-# cd здесь выполняется в том же процессе, но нам это и нужно: ниже скрипт всё
-# равно переходит в корень репозитория.
-set -l root (cd "$here/.."; and pwd -P)
-test -n "$root"; or die "не понял, где лежит репозиторий"
+# ------------------------------------------------------------------ настройки
+
+set -l branch $default_branch
+set -g branch_given 0
+if set -q _flag_b; and test -n "$_flag_b"
+    set branch $_flag_b
+    set branch_given 1
+end
+
 set -l port 8080
-if set -q _flag_p
-    and test -n "$_flag_p"
+if set -q _flag_p; and test -n "$_flag_p"
     set port $_flag_p
 end
+
 set -l workers 4
-if set -q _flag_w
-    and test -n "$_flag_w"
+if set -q _flag_w; and test -n "$_flag_w"
     set workers $_flag_w
 end
-set -l data "$root/data"
-if set -q _flag_o
-    and test -n "$_flag_o"
-    # realpath -m на маке нет, а cd внутри подстановки в fish меняет каталог
-    # самого скрипта — поэтому просто делаем путь абсолютным вручную.
-    mkdir -p -- $_flag_o; or die "не смог создать $_flag_o"
+
+# Куда клонировать. По умолчанию ~/rudolfzinovev.me — рядом с домашним, а не
+# в текущем каталоге: скрипт можно запускать откуда угодно.
+set -g root "$HOME/rudolfzinovev.me"
+if set -q _flag_t; and test -n "$_flag_t"
+    set root $_flag_t
+end
+string match -q '/*' -- $root; or set root (pwd)/$root
+# Хвостовой слэш ломает сравнения путей — убираем.
+set root (string replace -r '/+$' '' -- $root)
+test -n "$root"; or set root /
+
+set -g data "$root/data"
+if set -q _flag_o; and test -n "$_flag_o"
     set data $_flag_o
     string match -q '/*' -- $data; or set data (pwd)/$data
+    mkdir -p -- $data; or die "не смог создать $data"
 end
+
 set -l bind "127.0.0.1:$port"
 # global, а не local: функции в fish не видят локальные переменные вызывающего,
 # а обработчик Ctrl-C должен суметь убить сервер и убрать pid-файл.
@@ -98,34 +131,82 @@ set -g bin "$root/target/release/rudolfzinovev"
 step "rudolfzinovev · локальный запуск"
 printf '  репозиторий: %s\n' $root
 
-cd $root; or die "нет доступа к $root"
+command -q git; or die "нет git — поставь Xcode Command Line Tools: xcode-select --install"
 
-# -------------------------------------------------------------------- ветка
-
-set -l current (git rev-parse --abbrev-ref HEAD)
-if set -q _flag_b; and test -n "$_flag_b"; and test "$_flag_b" != "$current"
-    # Переключение ветки поверх незакоммиченных правок — так теряют работу.
-    if not git diff --quiet; or not git diff --cached --quiet
-        die "в дереве есть незакоммиченные правки; сначала git stash или commit"
-    end
-    step "переключаюсь на ветку $_flag_b"
-    git switch $_flag_b; or die "не смог переключиться на $_flag_b"
-    set current (git rev-parse --abbrev-ref HEAD)
-end
-ok "ветка: $current"
-
-# --------------------------------------------------------------------- pull
-
-if git rev-parse --verify --quiet '@{upstream}' >/dev/null
-    step "забираю изменения"
-    if git pull --ff-only --quiet
-        ok "код обновлён до "(git rev-parse --short HEAD)
-    else
-        warn "git pull не прошёл (ветки разошлись?) — собираю локальное состояние"
-    end
+# Проверяем, что ветка вообще есть в origin: иначе клон упадёт с невнятной
+# ошибкой, а после слияния ветки в main ссылка на неё станет битой.
+if git ls-remote --exit-code --heads $repo_url $branch >/dev/null 2>&1
+    ok "ветка $branch есть в origin"
 else
-    warn "у ветки нет upstream в origin — pull пропущен"
+    if test $branch_given -eq 1
+        die "ветки $branch нет в $repo_url"
+    end
+    warn "ветки $branch больше нет в origin — беру $fallback_branch"
+    set branch $fallback_branch
+    git ls-remote --exit-code --heads $repo_url $branch >/dev/null 2>&1
+    or die "не вижу в origin ни $default_branch, ни $fallback_branch"
 end
+printf '  ветка:       %s\n' $branch
+
+# ------------------------------------------------------- клонирование и pull
+
+# Три случая: каталога нет, каталог есть но это не репозиторий, репозиторий есть.
+if not test -d "$root"
+    step "клонирую $repo_url"
+    set -l parent (dirname $root)
+    mkdir -p -- $parent; or die "не смог создать $parent"
+    git clone --branch $branch --depth 1 $repo_url $root
+    or die "git clone не прошёл"
+    ok "склонировано в $root"
+else if not test -d "$root/.git"
+    # Каталог занят чем-то другим — не трогаем его.
+    die "$root уже существует и это не git-репозиторий; укажи другой каталог через -t"
+else
+    cd $root; or die "нет доступа к $root"
+
+    # Клон мог быть сделан с --depth 1 (тогда видна только одна ветка),
+    # поэтому сначала расширяем список веток remote'а, потом делаем fetch.
+    git remote set-branches origin '*' 2>/dev/null
+    set -l remote_ok 1
+    git fetch --prune origin; or set remote_ok 0
+    if test $remote_ok -eq 0
+        warn "git fetch не прошёл — собираю то, что уже лежит локально"
+    else
+        set -l dirty ""
+        if not git diff --quiet; or not git diff --cached --quiet
+            set dirty 1
+        end
+
+        set -l current (git rev-parse --abbrev-ref HEAD 2>/dev/null)
+        if test "$current" != "$branch"
+            if test -n "$dirty"
+                # Переключение ветки поверх правок — так теряют работу. Но и
+                # падать не обязательно: собираем то, что уже есть.
+                warn "в $root есть незакоммиченные правки; остаюсь на ветке $current"
+                set branch $current
+            else
+                step "переключаюсь на ветку $branch"
+                git switch --track -c $branch origin/$branch 2>/dev/null
+                or git switch $branch
+                or die "не смог переключиться на ветку $branch"
+            end
+        end
+
+        if test -n "$dirty"
+            warn "рабочая копия изменена — git pull пропущен"
+        else
+            step "забираю изменения"
+            if git pull --ff-only --quiet
+                ok "код обновлён до "(git rev-parse --short HEAD)
+            else
+                warn "git pull не прошёл (ветки разошлись?) — собираю локальное состояние"
+            end
+        end
+    end
+end
+
+cd $root; or die "нет доступа к $root"
+test -f Cargo.toml; or die "в $root нет Cargo.toml — это не тот репозиторий"
 
 # --------------------------------------------------- системные библиотеки
 # Бинарник линкуется с системными libsqlite3, libcrypto и libz: на macOS они
@@ -170,7 +251,7 @@ else
     end
     set -l size (du -h $bin | string replace -r '\s.*$' '' | string trim)
     test -n "$size"; or set size "?"
-    ok "собрано за "(math (date +%s) - $started)"s · $size
+    ok "собрано за "(math (date +%s) - $started)"s · $size"
 end
 
 # ------------------------------------------------------------ порт и старый pid
@@ -221,8 +302,7 @@ end
 # ---------------------------------------------------------------- пароль
 
 set -l owner owner
-if set -q RZ_OWNER
-    and test -n "$RZ_OWNER"
+if set -q RZ_OWNER; and test -n "$RZ_OWNER"
     set owner $RZ_OWNER
 end
 
@@ -292,7 +372,7 @@ while test $attempt -lt 100
     set attempt (math $attempt + 1)
     if not kill -0 $pid 2>/dev/null
         printf '\n'
-        step "сервер умер при старте, хвост лога:"
+        warn "сервер умер при старте, хвост лога:"
         tail_log $log
         exit 1
     end
@@ -317,12 +397,12 @@ printf '  админка: http://%s/login\n' $bind
 if test $fresh_db -eq 1
     printf '  вход:    %s / %s\n' $owner $password
 else
-    printf '  вход:    %s / %s (если база была создана раньше с другим паролем — он не перезаписан)\n' $owner $password
+    printf '  вход:    %s / пароль из %s/dev-password\n' $owner $data
 end
 printf '  лог:     tail -f %s\n' $log
 
 # Браузер открываем в обоих режимах: и когда ждём Ctrl-C, и когда уходим в фон.
-command -q open; and open "http://$bind/" 2>/dev/null
+open_url "http://$bind/"
 
 if set -q _flag_d
     printf '  стоп:    kill %s\n' $pid
