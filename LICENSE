@@ -1,0 +1,105 @@
+LICENSE ID: RZ-NONCOMMERCIAL-1.0
+Rudolf Zinovev Non-Commercial & Anti-Monetization Source License
+Version 1.0 — November 2026
+
+Copyright (c) 2026 Rudolf Zinovev (rudolfzinovev.me). All rights reserved.
+
+================================================================================
+PART I — ENGLISH (AUTHORITATIVE TEXT)
+================================================================================
+
+1. DEFINITIONS
+- "Software" means all source code, binaries, stylesheets, templates, design
+  systems, documentation, configuration files, and associated assets contained
+  in this repository (`rudolfzinovev.me`), as well as any Derivative Works.
+- "Licensor" means Rudolf Zinovev, the copyright holder of the Software.
+- "You" means any individual or non-commercial entity exercising permissions
+  granted by this License.
+- "Commercial Use" and "Monetary Gain" mean ANY activity intended for, directed
+  toward, or resulting in direct or indirect financial revenue, profit, business
+  advantage, or monetary compensation. This explicitly includes, without
+  limitation:
+    (a) selling, licensing, sublicensing, renting, or leasing the Software or
+        any Derivative Work;
+    (b) offering the Software as a hosted service, SaaS, PaaS, managed platform,
+        or paid API;
+    (c) using the Software (or its design/templates) for a company website,
+        corporate blog, agency portfolio, freelance client deliverable, store,
+        landing page for paid products/courses/consulting, or business entity;
+    (d) displaying advertisements, affiliate links, sponsorships, paid
+        placements, paywalls, paid subscriptions, crowdfunding/donation prompts
+        tied to content gating, or cryptocurrency/Web3 monetization on any
+        deployment of the Software;
+    (e) receiving payment for installing, customizing, hosting, or maintaining
+        the Software for third parties;
+    (f) using the Software internally within a for-profit organization.
+
+2. GRANT OF NON-COMMERCIAL LICENSE
+Subject to strict compliance with the terms and conditions of this License, the
+Licensor hereby grants You a worldwide, royalty-free, non-exclusive,
+non-transferable, revocable license to view, download, fork, modify, compile,
+and run the Software SOLELY for:
+  - personal, private, non-commercial study and experimentation;
+  - academic or educational research unrelated to commercial sponsorship;
+  - operating a strictly non-monetized personal hobby project that generates
+    zero revenue and promotes no commercial services or products.
+
+3. STRICT PROHIBITION ON COMMERCIAL USE & MONETARY GAIN
+You may NOT use the Software, in whole or in part, for any Commercial Use or
+Monetary Gain as defined in Section 1. No exceptions apply without a separate,
+prior written commercial license agreement signed by the Licensor.
+
+4. ATTRIBUTION & LICENSE PRESERVATION
+Any copy, fork, redistribution, or Derivative Work permitted under Section 2
+must:
+  (a) retain this `LICENSE` file verbatim and unaltered in the root directory;
+  (b) preserve all copyright notices attributing the original work to Rudolf
+      Zinovev (`rudolfzinovev.me`);
+  (c) not misrepresent the origin of the Software or use the name, domain, or
+      identity of Rudolf Zinovev without permission;
+  (d) license any Derivative Work under these exact same non-commercial terms.
+
+5. AUTOMATIC TERMINATION
+Your rights under this License terminate automatically and immediately without
+notice if You breach any provision of this License (including any attempt to
+monetize or commercially deploy the Software).
+
+6. DISCLAIMER OF WARRANTY & LIMITATION OF LIABILITY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+ЧАСТЬ II — РУССКИЙ ТЕКСТ (НЕКОММЕРЧЕСКАЯ ЛИЦЕНЗИЯ)
+================================================================================
+
+Настоящее программное обеспечение, дизайн-система, шаблоны и сопутствующие
+материалы репозитория `rudolfzinovev.me` («ПО») охраняются авторским правом.
+Правообладатель: Рудольф Зиновьев (Rudolf Zinovev).
+
+1. РАЗРЕШЁННОЕ ИСПОЛЬЗОВАНИЕ
+Разрешается изучать исходный код, собирать, модифицировать и запускать ПО
+ИСКЛЮЧИТЕЛЬНО в личных некоммерческих, учебных или исследовательских целях при
+условии полного отсутствия монетизации и сохранения данного файла `LICENSE` и
+указания авторства.
+
+2. ПОЛНЫЙ ЗАПРЕТ НА КОММЕРЦИЮ И ЗАРАБОТОК ДЕНЕГ
+Строго ЗАПРЕЩАЕТСЯ использовать ПО (целиком, частично или в виде производных
+работ, включая вёрстку и дизайн) в коммерческих целях или для извлечения любой
+финансовой выгоды (прямой или косвенной), в том числе:
+  - продажа, перепродажа, платное лицензирование или предоставление ПО как
+    услуги (SaaS / платный хостинг);
+  - выполнение коммерческих заказов на базе данного ПО (фриланс, веб-студии,
+    разработка сайтов клиентам за деньги);
+  - использование на сайтах компаний, ИП, коммерческих брендов, магазинов, а
+    также на личных сайтах, продающих услуги, консультации, курсы или товары;
+  - размещение рекламы, платных интеграций, спонсорских материалов, реферальных
+    ссылок, пейволлов (платного доступа к статьям) или платных подписок;
+  - внутреннее использование в коммерческих организациях.
+
+Любое нарушение данных условий немедленно и автоматически прекращает действие
+лицензии. По вопросам получения отдельного письменного разрешения обращайтесь
+к правообладателю через https://rudolfzinovev.me.

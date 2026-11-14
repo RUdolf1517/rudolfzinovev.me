@@ -1,0 +1,23 @@
+[package]
+name = "rudolfzinovev-me"
+version = "0.1.0"
+edition = "2024"
+authors = ["Rudolf Zinovev <me@rudolfzinovev.me>"]
+description = "rudolfzinovev.me — Terminal-inspired Digital Brutalist personal site & owner cabinet in pure Rust"
+license-file = "LICENSE"
+publish = false
+
+[[bin]]
+name = "rudolfzinovev"
+path = "src/main.rs"
+
+[dependencies]
+# Zero external crates by design: links directly against system libsqlite3, libcrypto (OpenSSL 3), and libz.
+# Guarantees sub-second builds, zero supply-chain bloat, offline builds on any Linux VPS, and <1.5 MB binary size.
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

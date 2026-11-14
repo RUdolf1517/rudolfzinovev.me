@@ -1,0 +1,19 @@
+# Build outputs
+/target/
+
+# Local SQLite database & WAL files
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Local secrets & environment files
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

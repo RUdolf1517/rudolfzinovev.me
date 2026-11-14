@@ -1,0 +1,48 @@
+# Caddy v2 — automatic HTTPS, HTTP/2 and HTTP/3, one binary, zero config drift.
+# Install: cp deploy/Caddyfile /etc/caddy/Caddyfile && systemctl reload caddy
+
+{
+	email	me@rudolfzinovev.me
+	# Serve HTTP/3 as well: QUIC costs nothing here and helps mobile clients.
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+rudolfzinovev.me, www.rudolfzinovev.me {
+	encode zstd gzip
+
+	# The app already sets ETag + Cache-Control; Caddy only passes them through.
+	reverse_proxy 127.0.0.1:8080 {
+		health_uri /healthz
+		health_interval 30s
+		# keep-alive to the Rust process, not per-request connects
+		transport http {
+			keepalive 30s
+			keepalive_idle_conns 16
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		-Server
+		# Caddy would otherwise advertise itself
+		X-Powered-By ""
+	}
+
+	# Immutable fingerprinted assets are already cacheable for a year.
+	@assets path /assets/* /favicon.svg
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# Cabinet and auth endpoints never get cached anywhere.
+	@private path /cabinet /cabinet/* /login /logout
+	header @private Cache-Control "no-store"
+
+	log {
+		output file /var/log/caddy/rudolfzinovev.access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format console
+	}
+}

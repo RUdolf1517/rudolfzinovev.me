@@ -1,0 +1,41 @@
+[Unit]
+Description=rudolfzinovev.me — personal site & owner cabinet (Rust, zero crates)
+Documentation=https://rudolfzinovev.me
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rz
+Group=rz
+WorkingDirectory=/srv/rudolfzinovev
+ExecStart=/srv/rudolfzinovev/rudolfzinovev serve
+EnvironmentFile=/srv/rudolfzinovev/.env
+Restart=always
+RestartSec=2
+# 15s keep-alive means idle sockets are cheap; cap the process instead
+LimitNOFILE=65535
+TimeoutStopSec=10
+
+# --- hardening -------------------------------------------------------------
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service ~@privileged @chown
+CapabilityBoundingSet=
+AmbientCapabilities=
+# only the data directory is writable
+ReadWritePaths=/srv/rudolfzinovev/data
+
+[Install]
+WantedBy=multi-user.target
