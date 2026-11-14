@@ -106,7 +106,7 @@ fn head(chrome: &Chrome<'_>, title: &str, description: &str, noindex: bool) -> S
     h.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n");
     w!(h, "<title>{}</title>\n", esc(title));
     w!(h, "<meta name=\"description\" content=\"{}\">\n", esc(description));
-    w!(h, "<meta name=\"theme-color\" content=\"{}\">\n", if chrome.theme == Theme::Obsidian { "#0b0d0f" } else { "#efeade" });
+    w!(h, "<meta name=\"theme-color\" content=\"{}\">\n", if chrome.theme == Theme::Obsidian { "#0c0c0d" } else { "#faf8f4" });
     if noindex {
         h.push_str("<meta name=\"robots\" content=\"noindex,nofollow\">\n");
     }
@@ -136,20 +136,22 @@ fn encode_uri_component(svg: &str) -> String {
     out
 }
 
+/// Running head: name, folio number for the current section, minimal tools.
+/// Deliberately not a navbar — the site should read as one continuous document.
 fn header(chrome: &Chrome<'_>) -> String {
     let tr = chrome.t();
     let mut h = String::new();
     h.push_str("<a class=\"skip\" href=\"#main\">");
     h.push_str(tr.skip_link);
-    h.push_str("</a>\n<header class=\"masthead\">\n<div class=\"masthead-inner\">\n");
+    h.push_str("</a>\n<header class=\"run\">\n<div class=\"run-inner\">");
+    h.push_str("<span class=\"run-mark\" aria-hidden=\"true\">❦</span>");
     w!(
         h,
-        "<a class=\"brand\" href=\"{}\" aria-label=\"{}\">{}</a>\n",
+        "<a class=\"run-name\" href=\"{}\">{}</a>",
         chrome.href("home"),
-        esc(&chrome.profile.owner_name),
         esc(&chrome.profile.owner_name)
     );
-    h.push_str("<nav class=\"nav\" aria-label=\"Primary\">");
+    h.push_str("<nav class=\"run-nav\" aria-label=\"Primary\">");
     for (key, label) in [("articles", tr.nav_articles), ("about", tr.nav_about)] {
         w!(
             h,
@@ -159,7 +161,7 @@ fn header(chrome: &Chrome<'_>) -> String {
             label
         );
     }
-    h.push_str("</nav>\n<div class=\"head-tools\">");
+    h.push_str("</nav>\n<span class=\"run-tools\">");
     let alt = match chrome.lang {
         Lang::Ru => Lang::En,
         Lang::En => Lang::Ru,
@@ -185,24 +187,31 @@ fn header(chrome: &Chrome<'_>) -> String {
     if chrome.owner {
         w!(h, "<a class=\"tool tool-accent\" href=\"/cabinet\">{}</a>", tr.nav_cabinet);
     }
-    h.push_str("</div>\n</div>\n</header>\n");
+    h.push_str("</span></div></header>\n");
     h
 }
 
 fn footer(chrome: &Chrome<'_>) -> String {
+    let p = chrome.profile;
     let mut h = String::new();
-    h.push_str("<footer class=\"foot\">\n<p class=\"foot-base\">");
+    h.push_str("<footer class=\"foot\">\n<div class=\"foot-inner\">");
+    h.push_str("<span class=\"foot-mark\" aria-hidden=\"true\">· · ·</span>");
     w!(
         h,
-        "<span>© {} {}</span>",
+        "<p class=\"foot-links\"><a href=\"{}\">{}</a><a href=\"/feed.xml\">RSS</a><a href=\"/sitemap.xml\">Sitemap</a><a href=\"{}\">GitHub</a><a href=\"/login\">{}</a></p>",
+        chrome.href("about"),
+        chrome.t().nav_about,
+        esc(&p.github),
+        chrome.t().footer_admin
+    );
+    w!(
+        h,
+        "<p class=\"foot-note\">© {} {} · {} · RZ-NONCOMMERCIAL-1.0</p>",
         i18n::format_date_utc(i18n::now_unix()).get(..4).unwrap_or("2025"),
-        esc(&chrome.profile.owner_name)
+        esc(&p.owner_name),
+        esc(&p.location)
     );
-    w!(
-        h,
-        "<span class=\"foot-links\"><a href=\"/feed.xml\">RSS</a> · <a href=\"/sitemap.xml\">Sitemap</a> · <a href=\"https://github.com/RUdolf1517\" rel=\"me noopener\">GitHub</a> · <a href=\"/login\">Sign in</a></span>"
-    );
-    h.push_str("</p>\n</footer>\n");
+    h.push_str("</div>\n</footer>\n");
     w!(h, "<script>{}</script>\n", JS);
     h.push_str("</body>\n</html>\n");
     h
@@ -221,154 +230,46 @@ fn layout(chrome: &Chrome<'_>, title: &str, description: &str, body: &str) -> St
 
 // ------------------------------------------------------------------- home
 
+/// One ledger line: catalogue number, title, dotted leader, date.
 fn article_row(chrome: &Chrome<'_>, a: &Article) -> String {
     let tr = chrome.t();
     let mut h = String::new();
+    h.push_str("<li class=\"entry\"><a href=\"");
+    h.push_str(a.lang_enum().prefix());
+    h.push_str("/articles/");
+    h.push_str(&esc(&a.slug));
+    h.push_str("\">");
+    w!(h, "<span class=\"entry-line\"><span class=\"entry-no\">{}</span>", catalogue_no(a.id));
+    w!(h, "<span class=\"entry-title\">{}</span>", esc(&a.title));
+    h.push_str("<span class=\"entry-dots\" aria-hidden=\"true\"></span>");
     w!(
         h,
-        "<li class=\"row\"><a class=\"row-link\" href=\"{}/articles/{}\">",
-        a.lang_enum().prefix(),
-        esc(&a.slug)
-    );
-    w!(
-        h,
-        "<span class=\"row-title\">{}</span><span class=\"row-sum\">{}</span>",
-        esc(&a.title),
-        esc(&a.summary)
-    );
-    w!(
-        h,
-        "<span class=\"row-meta\"><time datetime=\"{}\">{}</time><span class=\"dot\">·</span>{} {}</span>",
+        "<time class=\"entry-date\" datetime=\"{}\">{}</time>",
         a.date_iso(),
-        a.date_iso(),
-        a.reading_time(),
-        tr.min_short
+        a.date_iso()
     );
-    h.push_str("</a><span class=\"row-tags\">");
-    for (tag, slug) in a.tag_list().iter().zip(a.tag_slugs()) {
-        w!(
-            h,
-            "<a class=\"chip\" href=\"{}/tags/{}\">{}</a>",
-            chrome.lang.prefix(),
-            slug,
-            esc(tag)
-        );
+    h.push_str("</span>");
+    if !a.summary.is_empty() {
+        w!(h, "<span class=\"entry-sum\">{}</span>", esc(&a.summary));
     }
-    h.push_str("</span></li>\n");
+    h.push_str("<span class=\"entry-foot\">");
+    w!(h, "<span>{} {}</span>", a.reading_time(), tr.min_short);
+    for tag in a.tag_list() {
+        w!(h, "<span class=\"tag\">{}</span>", esc(&tag));
+    }
+    h.push_str("</span></a></li>\n");
     h
 }
 
-pub fn home(
-    chrome: &Chrome<'_>,
-    latests: &[Article],
-    tags: &[(String, String, i64)],
-    article_total: i64,
-) -> String {
-    let tr = chrome.t();
-    let mut b = String::new();
-    b.push_str("<section class=\"hero\">\n");
-    w!(b, "<p class=\"kicker\">{}</p>\n", esc(match chrome.lang {
-        Lang::Ru => &chrome.profile.role_ru,
-        Lang::En => &chrome.profile.role_en,
-    }));
-    w!(
-        b,
-        "<h1 class=\"display\">{}</h1>\n",
-        esc(&chrome.profile.owner_name)
-    );
-    w!(b, "<p class=\"lede\">{}</p>\n", esc(&match chrome.lang {
-        Lang::Ru => &chrome.profile.manifesto_ru,
-        Lang::En => &chrome.profile.manifesto_en,
-    }));
-    let (entries_word, tags_word) = match chrome.lang {
-        Lang::Ru => (
-            i18n::ru_plural(article_total, "запись", "записи", "записей"),
-            i18n::ru_plural(tags.len() as i64, "тег", "тега", "тегов"),
-        ),
-        Lang::En => (
-            if article_total == 1 { "entry" } else { "entries" },
-            if tags.len() == 1 { "tag" } else { "tags" },
-        ),
-    };
-    w!(
-        b,
-        "<p class=\"counts\">{} {} · {} {}</p>\n",
-        article_total,
-        entries_word,
-        tags.len(),
-        tags_word
-    );
-    b.push_str("<p class=\"cta\">");
-    w!(
-        b,
-        "<a class=\"btn-link\" href=\"{}\">{}</a>",
-        chrome.href("articles"),
-        tr.hero_cta_articles
-    );
-    w!(
-        b,
-        "<a class=\"btn-link\" href=\"{}\">{}</a>",
-        chrome.href("about"),
-        tr.hero_cta_about
-    );
-    b.push_str("</p>\n</section>\n");
-
-    b.push_str("<section class=\"section\">\n<div class=\"section-head\">\n");
-    w!(b, "<h2 class=\"h2\">{}</h2>", tr.latests);
-    w!(b, "<p class=\"section-sub\">{}</p>", tr.latests_sub);
-    b.push_str("</div>\n");
-    b.push_str(&search_box(chrome, None));
-    if latests.is_empty() {
-        w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
-    } else {
-        b.push_str("<ol class=\"rows\">");
-        for a in latests {
-            b.push_str(&article_row(chrome, a));
-        }
-        b.push_str("</ol>");
-    }
-    w!(
-        b,
-        "<p class=\"more\"><a href=\"{}\">{} →</a></p>",
-        chrome.href("articles"),
-        tr.all_articles
-    );
-    b.push_str("</section>\n");
-
-    if !tags.is_empty() {
-        b.push_str("<section class=\"section\">\n<div class=\"section-head\">\n");
-        w!(b, "<h2 class=\"h2\">{}</h2>", tr.all_tags);
-        b.push_str("</div>\n<div class=\"chips\">");
-        for (tag, slug, count) in tags {
-            w!(
-                b,
-                "<a class=\"chip\" href=\"{}/tags/{}\">{}<span class=\"chip-n\"> ({})</span></a>",
-                chrome.lang.prefix(),
-                slug,
-                esc(tag),
-                count
-            );
-        }
-        b.push_str("</div></section>\n");
-    }
-
-    let title = format!("{} — {}", chrome.profile.owner_name, tr.site_role);
-    layout(chrome, &title, &chrome.profile.manifesto_en, &b)
+/// Stable catalogue number for an entry — the site's quiet claim to being an
+/// archive rather than a feed. Two digits, padded, never reused.
+pub fn catalogue_no(id: i64) -> String {
+    format!("{id:02}")
 }
 
-fn search_box(chrome: &Chrome<'_>, query: Option<&str>) -> String {
-    let tr = chrome.t();
-    format!(
-        "<form class=\"search\" action=\"{}/articles\" method=\"get\" role=\"search\">\
-         <div class=\"search-field\">\
-         <input id=\"q\" name=\"q\" type=\"search\" value=\"{}\" placeholder=\"{}\" aria-label=\"{}\" autocomplete=\"off\" data-search-input>\
-         <button class=\"btn-mini\" type=\"submit\">{}</button></div></form>",
-        chrome.lang.prefix(),
-        esc(query.unwrap_or("")),
-        tr.search_placeholder,
-        tr.search_label,
-        tr.search_submit
-    )
+/// Sequential index for a filtered list, used by the contents list.
+fn index_no(i: usize) -> String {
+    format!("{:02}", i + 1)
 }
 
 // --------------------------------------------------------------- articles
@@ -382,27 +283,26 @@ pub fn articles_index(
 ) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"section section-first\">\n<div class=\"section-head\">\n");
+    b.push_str("<section class=\"section section-first\">\n");
     let heading = if query.is_some() {
         tr.search_results
     } else {
         tr.all_articles
     };
-    w!(b, "<h2 class=\"h2\">{}</h2>", heading);
+    w!(b, "<h2 class=\"sec-label\">{}</h2>\n", heading);
     w!(
         b,
-        "<p class=\"section-sub\">{} {}</p>",
+        "<p class=\"sec-note\">{} {}</p>\n",
         articles.len(),
         match chrome.lang {
             Lang::Ru => i18n::ru_plural(articles.len() as i64, "запись", "записи", "записей"),
             Lang::En => if articles.len() == 1 { "entry" } else { "entries" },
         }
     );
-    b.push_str("</div>\n");
     b.push_str(&search_box(chrome, query));
 
     if !tags.is_empty() {
-        b.push_str("<div class=\"chips chips-filter\">");
+        b.push_str("<div class=\"chips\">");
         w!(
             b,
             "<a class=\"chip{}\" href=\"{}/articles\">{}</a>",
@@ -414,7 +314,7 @@ pub fn articles_index(
             let on = active_tag == Some(slug.as_str());
             w!(
                 b,
-                "<a class=\"chip{}\" href=\"{}/tags/{}\">{}<span class=\"chip-n\"> ({})</span></a>",
+                "<a class=\"chip{}\" href=\"{}/tags/{}\">{} <span class=\"chip-n\">{}</span></a>",
                 if on { " chip-on" } else { "" },
                 chrome.lang.prefix(),
                 slug,
@@ -428,7 +328,7 @@ pub fn articles_index(
     if articles.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", if query.is_some() { tr.search_empty } else { tr.empty_state });
     } else {
-        b.push_str("<ol class=\"rows\">");
+        b.push_str("<ol class=\"ledger\">");
         for a in articles {
             b.push_str(&article_row(chrome, a));
         }
@@ -436,7 +336,7 @@ pub fn articles_index(
         if query.is_some() {
             w!(
                 b,
-                "<p class=\"more\"><a class=\"btn btn-link\" href=\"{}/articles\">{} →</a></p>",
+                "<p class=\"more\"><a href=\"{}/articles\">{}</a></p>",
                 chrome.lang.prefix(),
                 tr.clear
             );
@@ -451,6 +351,125 @@ pub fn articles_index(
     layout(chrome, &title, tr.latests_sub, &b)
 }
 
+pub fn home(
+    chrome: &Chrome<'_>,
+    latests: &[Article],
+    tags: &[(String, String, i64)],
+    article_total: i64,
+) -> String {
+    let tr = chrome.t();
+    let p = chrome.profile;
+    let (statement, role) = match chrome.lang {
+        Lang::Ru => (&p.manifesto_ru, &p.role_ru),
+        Lang::En => (&p.manifesto_en, &p.role_en),
+    };
+    let mut b = String::new();
+
+    // Title page: the whole first screen is one statement, not a dashboard.
+    b.push_str("<section class=\"titlepage\">\n");
+    w!(b, "<p class=\"tp-kicker\">{}</p>\n", esc(role));
+    let (first, rest) = split_name(&p.owner_name);
+    b.push_str("<h1 class=\"tp-name\">");
+    w!(b, "{}", esc(&first));
+    if !rest.is_empty() {
+        w!(b, "<em>{}</em>", esc(&rest));
+    }
+    b.push_str("</h1>\n<div class=\"tp-rule\"></div>\n");
+    w!(b, "<p class=\"tp-statement\">{}</p>\n", esc(statement));
+
+    let (entries_word, tags_word) = match chrome.lang {
+        Lang::Ru => (
+            i18n::ru_plural(article_total, "запись", "записи", "записей"),
+            i18n::ru_plural(tags.len() as i64, "тег", "тега", "тегов"),
+        ),
+        Lang::En => (
+            if article_total == 1 { "entry" } else { "entries" },
+            if tags.len() == 1 { "tag" } else { "tags" },
+        ),
+    };
+    w!(
+        b,
+        "<p class=\"tp-meta\"><span>{} {}</span><span>{} {}</span><span>{}</span></p>\n",
+        article_total,
+        entries_word,
+        tags.len(),
+        tags_word,
+        esc(&p.location)
+    );
+    b.push_str("<p class=\"tp-links\">");
+    w!(
+        b,
+        "<a href=\"{}\">{}</a><a href=\"{}\">{}</a>",
+        chrome.href("articles"),
+        tr.hero_cta_articles,
+        chrome.href("about"),
+        tr.hero_cta_about
+    );
+    b.push_str("</p>\n</section>\n");
+
+    b.push_str("<section class=\"section\">\n");
+    w!(b, "<h2 class=\"sec-label\">{}</h2>\n", tr.latests);
+    if latests.is_empty() {
+        w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
+    } else {
+        b.push_str("<ol class=\"ledger\">");
+        for a in latests {
+            b.push_str(&article_row(chrome, a));
+        }
+        b.push_str("</ol>");
+    }
+    w!(
+        b,
+        "<p class=\"more\"><a href=\"{}\">{} →</a></p>",
+        chrome.href("articles"),
+        tr.all_articles
+    );
+    b.push_str("</section>\n");
+
+    if !tags.is_empty() {
+        b.push_str("<section class=\"section\">\n");
+        w!(b, "<h2 class=\"sec-label\">{}</h2>\n", tr.all_tags);
+        b.push_str("<ul class=\"index\">");
+        for (tag, slug, count) in tags {
+            w!(
+                b,
+                "<li><a href=\"{}/tags/{}\">{} <span class=\"n\">{}</span></a></li>",
+                chrome.lang.prefix(),
+                slug,
+                esc(tag),
+                count
+            );
+        }
+        b.push_str("</ul></section>\n");
+    }
+
+    let title = format!("{} — {}", p.owner_name, tr.site_role);
+    layout(chrome, &title, statement, &b)
+}
+
+/// Split a full name so the surname can be set on its own line, quieter.
+fn split_name(name: &str) -> (String, String) {
+    match name.split_once(' ') {
+        Some((first, rest)) => (first.to_string(), rest.to_string()),
+        None => (name.to_string(), String::new()),
+    }
+}
+
+fn search_box(chrome: &Chrome<'_>, query: Option<&str>) -> String {
+    let tr = chrome.t();
+    format!(
+        "<form class=\"search\" action=\"{}/articles\" method=\"get\" role=\"search\">\
+         <div class=\"search-field\">\
+         <input id=\"q\" name=\"q\" type=\"search\" value=\"{}\" placeholder=\"{}\" aria-label=\"{}\" autocomplete=\"off\" data-search-input>\
+         <button type=\"submit\">{}</button></div></form>",
+        chrome.lang.prefix(),
+        esc(query.unwrap_or("")),
+        tr.search_placeholder,
+        tr.search_label,
+        tr.search_submit
+    )
+}
+
 pub fn article_page(
     chrome: &Chrome<'_>,
     article: &Article,
@@ -460,6 +479,7 @@ pub fn article_page(
     let tr = chrome.t();
     let rendered = render_markdown(&article.body_md);
     let mut b = String::new();
+    b.push_str("<div class=\"progress\" aria-hidden=\"true\"></div>");
     b.push_str("<article class=\"article\">\n");
     w!(
         b,
@@ -467,36 +487,43 @@ pub fn article_page(
         chrome.lang.prefix(),
         tr.nav_articles
     );
-    b.push_str("<header class=\"article-head\">\n");
-    b.push_str("<p class=\"article-tags\">");
-    for (tag, slug) in article.tag_list().iter().zip(article.tag_slugs()) {
-        w!(
-            b,
-            "<a class=\"chip\" href=\"{}/tags/{}\">{}</a>",
-            chrome.lang.prefix(),
-            slug,
-            esc(tag)
-        );
-    }
-    b.push_str("</p>\n");
-    w!(b, "<h1 class=\"article-title\">{}</h1>\n", esc(&article.title));
-    w!(b, "<p class=\"article-sum\">{}</p>\n", esc(&article.summary));
-    b.push_str("<div class=\"article-meta\">");
+
     w!(
         b,
-        "<span><time datetime=\"{}\">{}</time></span>",
+        "<p class=\"chapter-no\">{}{}</p>",
+        match chrome.lang {
+            Lang::Ru => "запись",
+            Lang::En => "entry",
+        },
+        format!(" {}", catalogue_no(article.id))
+    );
+    w!(b, "<h1 class=\"article-title\">{}</h1>\n", esc(&article.title));
+    if !article.summary.is_empty() {
+        w!(b, "<p class=\"article-sum\">{}</p>\n", esc(&article.summary));
+    }
+
+    b.push_str("<div class=\"chapter-meta\">");
+    w!(
+        b,
+        "<time datetime=\"{}\">{}</time>",
         article.date_iso(),
         article.date_iso()
     );
     w!(b, "<span>{} {}</span>", article.reading_time(), tr.min_short);
     if article.updated_at > article.published_at + 60 {
+        w!(b, "<span>{} {}</span>", tr.updated_on, article.edit_date_iso());
+    }
+    b.push_str("<span class=\"tags\">");
+    for (tag, slug) in article.tag_list().iter().zip(article.tag_slugs()) {
         w!(
             b,
-            "<span>{} {}</span>",
-            tr.updated_on,
-            article.edit_date_iso()
+            "<a href=\"{}/tags/{}\">{}</a>",
+            chrome.lang.prefix(),
+            slug,
+            esc(tag)
         );
     }
+    b.push_str("</span>");
     if let Some(other) = other {
         w!(
             b,
@@ -507,19 +534,21 @@ pub fn article_page(
             tr.read_other_lang
         );
     }
-    b.push_str("</div>\n</header>\n");
+    b.push_str("</div>\n");
 
+    // Contents, set like a book's table of contents with dotted leaders.
     if !rendered.toc.is_empty() {
-        b.push_str("<nav class=\"toc\" aria-label=\"Contents\"><span class=\"label\">");
-        b.push_str(tr.toc);
-        b.push_str("</span><ol>");
-        for item in &rendered.toc {
+        b.push_str("<nav class=\"toc\" aria-label=\"Contents\">");
+        w!(b, "<h2 class=\"sec-label\">{}</h2>", tr.toc);
+        b.push_str("<ol>");
+        for (i, item) in rendered.toc.iter().enumerate() {
             w!(
                 b,
-                "<li class=\"toc-l{}\"><a href=\"#{}\">{}</a></li>",
+                "<li class=\"toc-l{}\"><a href=\"#{}\"><span class=\"t\">{}</span><span class=\"d\" aria-hidden=\"true\"></span><span class=\"n\">{}</span></a></li>",
                 item.level,
                 esc(&item.id),
-                esc(&item.title)
+                esc(&item.title),
+                index_no(i)
             );
         }
         b.push_str("</ol></nav>\n");
@@ -536,13 +565,19 @@ pub fn article_page(
         article.body_md.split_whitespace().count(),
         if chrome.lang == Lang::Ru { "слов" } else { "words" }
     );
+    w!(
+        b,
+        "<span>{} {}</span>",
+        catalogue_no(article.id),
+        if chrome.lang == Lang::Ru { "в каталоге" } else { "in the catalogue" }
+    );
     w!(b, "<a href=\"{}/articles\">{}</a>", chrome.lang.prefix(), tr.back_to_articles);
     b.push_str("</footer>\n</article>\n");
 
     if !related.is_empty() {
-        b.push_str("<section class=\"section related\">\n");
-        w!(b, "<h2 class=\"h2\">{}</h2>", tr.related);
-        b.push_str("<ol class=\"rows\">");
+        b.push_str("<section class=\"section\">\n");
+        w!(b, "<h2 class=\"sec-label\">{}</h2>", tr.related);
+        b.push_str("<ol class=\"ledger\">");
         for a in related {
             b.push_str(&article_row(chrome, a));
         }
@@ -577,8 +612,9 @@ pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)])
     };
     let mut b = String::new();
     b.push_str("<section class=\"about\">\n");
-    w!(b, "<h1 class=\"display display-sm\">{}</h1>\n", tr.about_title);
-    w!(b, "<p class=\"lede\">{}</p>\n", esc(role));
+    w!(b, "<p class=\"tp-kicker\">{}</p>", tr.about_title);
+    w!(b, "<h1 class=\"article-title\">{}</h1>\n", esc(&p.owner_name));
+    w!(b, "<p class=\"article-sum\">{}</p>\n", esc(role));
 
     w!(
         b,
@@ -592,32 +628,15 @@ pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)])
         tr.about_now,
         esc(now)
     );
-
     w!(
         b,
         "<div class=\"manifesto\"><span class=\"label\">{}</span><p>{}</p></div>",
         tr.about_stack,
-        tr.about_stack_text
-    );
-    w!(
-        b,
-        "<div class=\"manifesto\"><span class=\"label\">{}</span><p>{} · {} {} · {} {}</p></div>",
-        tr.about_license,
-        tr.about_license_text,
-        articles,
-        match chrome.lang {
-            Lang::Ru => i18n::ru_plural(articles, "запись", "записи", "записей"),
-            Lang::En => if articles == 1 { "entry" } else { "entries" },
-        },
-        tags.len(),
-        match chrome.lang {
-            Lang::Ru => i18n::ru_plural(tags.len() as i64, "тег", "тега", "тегов"),
-            Lang::En => if tags.len() == 1 { "tag" } else { "tags" },
-        }
+        esc(tr.about_stack_text)
     );
 
-    b.push_str("<div class=\"contact\">");
-    w!(b, "<h2 class=\"h2\">{}</h2>", tr.about_contact);
+    b.push_str("<div class=\"section\">");
+    w!(b, "<h2 class=\"sec-label\">{}</h2>", tr.about_contact);
     b.push_str("<ul class=\"contact-list\">");
     for (label, value, href) in [
         ("Email", p.email.clone(), format!("mailto:{}", p.email)),
@@ -635,7 +654,26 @@ pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)])
             w!(b, "<li><span class=\"label\">{}</span><span>{}</span></li>", label, esc(&value));
         }
     }
-    b.push_str("</ul></div>\n</section>");
+    b.push_str("</ul></div>\n");
+
+    b.push_str("<div class=\"section\">");
+    w!(b, "<h2 class=\"sec-label\">{}</h2>", tr.about_license);
+    w!(
+        b,
+        "<div class=\"manifesto\"><p>{} · {} {}, {} {}</p></div>",
+        tr.about_license_text,
+        articles,
+        match chrome.lang {
+            Lang::Ru => i18n::ru_plural(articles, "запись", "записи", "записей"),
+            Lang::En => if articles == 1 { "entry" } else { "entries" },
+        },
+        tags.len(),
+        match chrome.lang {
+            Lang::Ru => i18n::ru_plural(tags.len() as i64, "тег", "тега", "тегов"),
+            Lang::En => if tags.len() == 1 { "tag" } else { "tags" },
+        }
+    );
+    b.push_str("</div>\n</section>");
     let title = format!("{} — {}", tr.about_title, p.owner_name);
     layout(chrome, &title, manifesto, &b)
 }
@@ -645,7 +683,7 @@ pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)])
 pub fn login(chrome: &Chrome<'_>, error: Option<&str>, csrf: &str, rate_limited: bool) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"auth\">\n<div class=\"auth-card\">\n");
+    b.push_str("<section class=\"auth\">\n");
     w!(b, "<h1 class=\"auth-title\">{}</h1>", tr.login_title);
     w!(b, "<p class=\"auth-hint\">{}</p>", tr.login_hint);
     if let Some(msg) = error {
@@ -882,7 +920,7 @@ pub fn cabinet_editor(
     };
     let mut b = String::new();
     if !errors.is_empty() {
-        b.push_str("<div class=\"alert-block\" role=\"alert\">");
+        b.push_str("<div class=\"alert\" role=\"alert\">");
         for e in errors {
             w!(b, "<p class=\"alert\">{}</p>", esc(e));
         }
@@ -1164,11 +1202,12 @@ pub fn cabinet_backup(chrome: &Chrome<'_>, stats: &BackupStats, flash: Option<&s
 pub fn not_found(chrome: &Chrome<'_>) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"err\">\n<div class=\"err-code\">404</div><div class=\"err-body\">");
+    b.push_str("<section class=\"err\">");
+    w!(b, "<p class=\"err-code\">404</p>");
     w!(b, "<h1 class=\"err-title\">{}</h1>", tr.not_found_title);
     w!(b, "<p class=\"err-text\">{}</p>", tr.not_found_text);
-    w!(b, "<a href=\"{}\">{} →</a>", chrome.href("home"), tr.not_found_cta);
-    b.push_str("</div></section>");
+    w!(b, "<a class=\"back\" href=\"{}\">{} →</a>", chrome.href("home"), tr.not_found_cta);
+    b.push_str("</section>");
     let mut h = head(chrome, &format!("404 — {}", chrome.profile.owner_name), tr.not_found_text, true);
     h.push_str(&header(chrome));
     h.push_str("<main id=\"main\" class=\"shell\">");
@@ -1181,11 +1220,12 @@ pub fn not_found(chrome: &Chrome<'_>) -> String {
 pub fn server_error(chrome: &Chrome<'_>) -> String {
     let tr = chrome.t();
     let mut b = String::new();
-    b.push_str("<section class=\"err\">\n<div class=\"err-code\">500</div><div class=\"err-body\">");
+    b.push_str("<section class=\"err\">");
+    w!(b, "<p class=\"err-code\">500</p>");
     w!(b, "<h1 class=\"err-title\">{}</h1>", tr.server_error_title);
     w!(b, "<p class=\"err-text\">{}</p>", tr.server_error_text);
-    w!(b, "<a href=\"{}\">{} →</a>", chrome.href("home"), tr.not_found_cta);
-    b.push_str("</div></section>");
+    w!(b, "<a class=\"back\" href=\"{}\">{} →</a>", chrome.href("home"), tr.not_found_cta);
+    b.push_str("</section>");
     let mut h = head(chrome, &format!("500 — {}", chrome.profile.owner_name), tr.server_error_text, true);
     h.push_str(&header(chrome));
     h.push_str("<main id=\"main\" class=\"shell\">");

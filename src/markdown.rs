@@ -128,7 +128,7 @@ pub fn render_markdown(input: &str) -> RenderedMarkdown {
                 let base_slug = slugify_anchor(raw_title);
                 let id = format!("s{sec_counter}-{base_slug}");
                 let level = hashes as u8;
-                if (2..=3).contains(&level) {
+                if (1..=3).contains(&level) {
                     toc.push(TocItem {
                         level,
                         id: id.clone(),
@@ -163,6 +163,15 @@ pub fn render_markdown(input: &str) -> RenderedMarkdown {
                 }
             }
             let joined = quote_lines.join("\n");
+            let trimmed = joined.trim_start();
+            // `> [!note] text` becomes a margin note — the site's signature
+            // typographic device, rendered inline on narrow screens.
+            if let Some(note) = trimmed.strip_prefix("[!note]") {
+                html.push_str("<span class=\"note\">");
+                html.push_str(&render_inline(note.trim()));
+                html.push_str("</span>\n");
+                continue;
+            }
             let inner = render_markdown(&joined);
             html.push_str("<blockquote class=\"md-quote\">\n");
             html.push_str(&inner.html);
@@ -442,6 +451,14 @@ pub fn render_inline(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn margin_notes_are_extracted() {
+        let res = render_markdown("Text with a marker.\n\n> [!note] A quiet aside, **with emphasis**.\n\nMore text.");
+        assert!(res.html.contains("class=\"note\""));
+        assert!(res.html.contains("<strong>with emphasis</strong>"));
+        assert!(!res.html.contains("md-quote"));
+    }
 
     #[test]
     fn renders_headings_code_and_escapes_xss() {

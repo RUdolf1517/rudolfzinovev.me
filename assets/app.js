@@ -12,7 +12,7 @@
     var label = document.querySelector("[data-theme-label]");
     if (label) label.textContent = next === "obsidian" ? "Paper" : "Obsidian";
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = next === "obsidian" ? "#0b0d0f" : "#efeade";
+    if (meta) meta.content = next === "obsidian" ? "#0c0c0d" : "#faf8f4";
   }
   document.addEventListener("click", function (e) {
     var btn = e.target.closest("[data-theme-toggle]");
