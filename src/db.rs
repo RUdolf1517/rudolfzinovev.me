@@ -308,6 +308,17 @@ impl Store {
         Ok(row.as_deref().and_then(Article::from_row))
     }
 
+    /// Translation key already used by any language for this slug, if any.
+    /// Lets the editor link a fresh RU entry to an existing EN entry that
+    /// shares the slug, without asking the owner for internal identifiers.
+    pub fn translation_key_for_slug(&self, slug: &str) -> Result<Option<String>, String> {
+        let row = self.db.query_one(
+            "SELECT translation_key FROM articles WHERE slug = ?1 LIMIT 1",
+            &[SqlParam::Text(slug)],
+        )?;
+        Ok(row.map(|r| r[0].as_str().to_string()).filter(|k| !k.is_empty()))
+    }
+
     pub fn list_articles(&self, filter: &ArticleFilter<'_>) -> Result<Vec<Article>, String> {
         let mut sql = format!("SELECT {ARTICLE_COLS} FROM articles WHERE 1 = 1");
         let mut params: Vec<SqlParam<'_>> = Vec::new();

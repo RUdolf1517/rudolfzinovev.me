@@ -479,6 +479,9 @@ impl App {
     // ---------------------------------------------------------------- auth
 
     fn login_page(&self, req: &Request, error: Option<&str>, limited: bool) -> Response {
+        if error.is_none() && self.session(req).is_some() {
+            return Response::redirect("/cabinet");
+        }
         let profile = self.profile_now();
         let lang = detect_lang(
             &format!("accept-language: {}", req.header("accept-language").unwrap_or("")),
@@ -705,6 +708,7 @@ impl App {
             .collect::<Vec<_>>()
             .join(", ");
         let published_at = get("published_at").parse::<i64>().ok().filter(|v| *v > 0);
+        let requested_key = http::truncate_chars(get("translation_key").trim(), 64);
 
         // Slug collisions inside the same language get a suffix instead of a constraint error.
         let mut candidate = slug.clone();
@@ -724,8 +728,18 @@ impl App {
             n += 1;
         }
 
+        // Link translations: an explicit key wins, otherwise reuse the key of any
+        // entry that already shares this slug, otherwise the store mints one.
+        let auto_key = if requested_key.is_empty() {
+            self.store
+                .translation_key_for_slug(&candidate)
+                .ok()
+                .flatten()
+        } else {
+            Some(requested_key.clone())
+        };
         let input = NewArticle {
-            translation_key: None,
+            translation_key: auto_key.as_deref(),
             lang,
             slug: &candidate,
             title: &title,
@@ -1106,6 +1120,46 @@ mod tests {
         let resp = app.handle(&delete);
         assert_eq!(resp.status, 303);
         assert_eq!(app.handle(&request("GET", "/articles/draft-entry")).status, 404);
+    }
+
+    #[test]
+    fn translations_link_by_slug_and_authenticated_login_redirects() {
+        let app = temp_app("translation");
+        let token = login_cookie(&app);
+        let mut create = request("POST", "/cabinet/articles/new");
+        create.headers.push(("cookie".into(), format!("rz_session={token}")));
+        create.headers.push(("origin".into(), "http://localhost:8080".into()));
+        create.headers.push((
+            "content-type".into(),
+            "application/x-www-form-urlencoded".into(),
+        ));
+        // Same slug as the seeded EN entry, written in Russian.
+        create.body =
+            b"title=HTTP+on+libc&slug=http-server-without-crates&lang=ru&summary=s&body_md=body&tags=rust&status=published".to_vec();
+        assert_eq!(app.handle(&create).status, 303);
+
+        let en = app
+            .store
+            .article_by_slug("en", "http-server-without-crates")
+            .unwrap()
+            .expect("en article");
+        let ru = app
+            .store
+            .article_by_slug("ru", "http-server-without-crates")
+            .unwrap()
+            .expect("ru article");
+        assert_eq!(ru.translation_key, en.translation_key);
+
+        let page = app.handle(&request("GET", "/articles/http-server-without-crates"));
+        assert_eq!(page.status, 200);
+        assert!(String::from_utf8(page.body)
+            .unwrap()
+            .contains("/en/articles/http-server-without-crates"));
+
+        // A logged-in owner hitting /login is sent to the cabinet.
+        let mut login = request("GET", "/login");
+        login.headers.push(("cookie".into(), format!("rz_session={token}")));
+        assert_eq!(app.handle(&login).status, 303);
     }
 
     #[test]

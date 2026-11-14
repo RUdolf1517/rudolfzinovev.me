@@ -930,7 +930,7 @@ pub fn cabinet_editor(
     errors: &[String],
 ) -> String {
     let tr = chrome.t();
-    let (action, id, lang, slug, title, summary, body, tag_str, status, featured, published_at) = match article {
+    let (action, id, lang, slug, title, summary, body, tag_str, status, featured, published_at, key) = match article {
         Some(a) => (
             format!("/cabinet/articles/{}", a.id),
             a.id,
@@ -943,6 +943,7 @@ pub fn cabinet_editor(
             a.status.clone(),
             a.featured,
             a.published_at,
+            a.translation_key.clone(),
         ),
         None => (
             "/cabinet/articles/new".to_string(),
@@ -956,6 +957,7 @@ pub fn cabinet_editor(
             "draft".to_string(),
             false,
             0,
+            String::new(),
         ),
     };
     let mut b = String::new();
@@ -1014,6 +1016,12 @@ pub fn cabinet_editor(
         tr.field_tags,
         esc(&tag_str),
         tr.field_tags_hint
+    );
+    w!(
+        b,
+        "<label class=\"field\"><span class=\"label\">{} <span class=\"hint\">auto</span></span><input name=\"translation_key\" type=\"text\" value=\"{}\" maxlength=\"64\" placeholder=\"link RU↔EN\"></label>",
+        tr.field_translation_key,
+        esc(&key)
     );
     if !tags.is_empty() {
         b.push_str("<div class=\"chips chips-hint\">");

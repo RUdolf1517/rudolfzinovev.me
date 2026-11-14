@@ -44,7 +44,8 @@ install -o root -g root -m 0755 "$SRC_DIR/target/release/rudolfzinovev" "$APP_DI
 
 if [[ ! -f "$APP_DIR/.env" ]]; then
   log "writing $APP_DIR/.env (generating owner password)"
-  OWNER_PW=$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | head -c 20)
+  # No pipeline here: with `set -o pipefail` a truncated pipe would abort the script.
+  OWNER_PW=$(openssl rand -hex 10)
   cat >"$APP_DIR/.env" <<EOF
 RZ_BIND=127.0.0.1:8080
 RZ_DATA=$APP_DIR/data

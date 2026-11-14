@@ -10,7 +10,7 @@ COPY assets ./assets
 RUN cargo build --release && strip target/release/rudolfzinovev
 
 FROM alpine:3.20
-RUN adduser -D -H -u 10001 rz && apk add --no-cache sqlite-libs libgcc
+RUN adduser -D -H -u 10001 rz && apk add --no-cache sqlite-libs zlib libcrypto3
 COPY --from=build /src/target/release/rudolfzinovev /usr/local/bin/rudolfzinovev
 USER 10001:10001
 ENV RZ_BIND=0.0.0.0:8080 \

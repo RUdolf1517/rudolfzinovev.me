@@ -3,7 +3,7 @@
 > Персональный сайт и закрытый кабинет владельца. **Rust без единого внешнего крейта.**
 > A personal site and owner-only cabinet. **Rust, zero external crates.**
 
-[![tests](https://img.shields.io/badge/tests-22%20passing-3f6b34)](#tests)
+[![tests](https://img.shields.io/badge/tests-24%20passing-3f6b34)](#тесты)
 [![deps](https://img.shields.io/badge/dependencies-0-d9a04d)](#zero-crates)
 [![binary](https://img.shields.io/badge/binary-907%20KB-191713)](#performance)
 [![license](https://img.shields.io/badge/license-RZ--NONCOMMERCIAL--1.0-c2542d)](LICENSE)
@@ -14,7 +14,7 @@
 
 | | |
 |---|---|
-| **Сайт** | Статьи с тегами, поиском, RSS, оглавлением, двумя языками (RU/EN) и двумя темами. Статьи с тегами, поиском, RSS и оглавлением. |
+| **Сайт** | Статьи с тегами, поиском, RSS и оглавлением; два языка (RU/EN), две темы (Obsidian / Paper). |
 | **Кабинет** | `/cabinet` — только для владельца: Markdown-редактор с черновиками и публикацией, профиль и манифест сайта, приватная телеметрия, сессии и смена пароля, JSON-бэкап. |
 | **Стек** | Rust 2024, `std::net`, системные `libsqlite3` / `libcrypto` / `libz`. Ноль крейтов, ноль JS-сборки, ноль внешних запросов из браузера. |
 | **Размер** | 907 КБ бинарник (399 КБ gzip), 11 КБ gzip главная страница, < 2 КБ gzip JavaScript. |
@@ -247,7 +247,7 @@ sqlite3 /srv/rudolfzinovev/data/site.sqlite ".backup '/tmp/site-backup.sqlite'"
 ## Тесты
 
 ```bash
-cargo test          # 22 теста: HTTP-разбор, rate limiter, SQL, сессии, шаблоны, RSS, даты
+cargo test          # 24 теста: HTTP-разбор, rate limiter, SQL, сессии, шаблоны, RSS, даты
 ```
 
 Тесты поднимают настоящую SQLite во временном каталоге и проходят полный
