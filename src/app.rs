@@ -9,7 +9,7 @@ use crate::crypto;
 use crate::db::{ArticleFilter, NewArticle, Store};
 use crate::http::{self, RateLimiter, Request, Response};
 use crate::i18n::{self, Lang, t};
-use crate::models::{Article, BackupStats, Profile, ViewRecord, detect_lang, slug_of};
+use crate::models::{Article, BackupStats, Kind, Profile, ViewRecord, detect_lang, slug_of};
 use crate::templates::{self, Chrome};
 
 const SESSION_COOKIE: &str = "rz_session";
@@ -194,6 +194,22 @@ impl App {
                     .store
                     .list_articles(&ArticleFilter {
                         lang: Some(lang.code()),
+                        kind: Some("note"),
+                        limit: Some(30),
+                        ..Default::default()
+                    })
+                    .unwrap_or_default();
+                let xml = templates::feed_xml(lang, &self.profile_now(), &articles);
+                Response::new(200, "application/rss+xml; charset=utf-8", xml.into_bytes())
+                    .header("Cache-Control", "public, max-age=600")
+            }
+            // Projects are a catalogue, not a stream: they get their own feed.
+            "/projects/feed.xml" => {
+                let articles = self
+                    .store
+                    .list_articles(&ArticleFilter {
+                        lang: Some(lang.code()),
+                        kind: Some("project"),
                         limit: Some(30),
                         ..Default::default()
                     })
@@ -203,15 +219,25 @@ impl App {
                     .header("Cache-Control", "public, max-age=600")
             }
             "/" => self.home_page(req, lang),
-            "/articles" => self.articles_page(req, lang, None),
+            "/notes" => self.section_page(req, lang, Kind::Note, None),
+            "/projects" => self.section_page(req, lang, Kind::Project, None),
             "/about" => self.about_page(req, lang),
             "/tags" => self.tags_page(req, lang),
+            // The old names still work: /articles is now /notes.
+            "/articles" => Response::redirect(&format!("{}notes", lang.prefix())),
             _ => {
                 if let Some(slug) = rest.strip_prefix("/tags/") {
-                    return self.articles_page(req, lang, Some(slug));
+                    return self.section_page(req, lang, Kind::Note, Some(slug));
                 }
                 if let Some(slug) = rest.strip_prefix("/articles/") {
-                    return self.article_detail(req, lang, slug);
+                    let target = templates::entry_path(lang.prefix(), "notes", slug);
+                    return Response::redirect(&target);
+                }
+                if let Some(slug) = rest.strip_prefix("/notes/") {
+                    return self.entry_detail(req, lang, Kind::Note, slug);
+                }
+                if let Some(slug) = rest.strip_prefix("/projects/") {
+                    return self.entry_detail(req, lang, Kind::Project, slug);
                 }
                 self.not_found(req, lang)
             }
@@ -344,79 +370,86 @@ impl App {
             .store
             .list_articles(&ArticleFilter {
                 lang: Some(lang_code),
+                kind: Some("note"),
                 limit: Some(5),
                 ..Default::default()
             })
             .unwrap_or_default();
-        let all = self
+        let projects = self
             .store
             .list_articles(&ArticleFilter {
                 lang: Some(lang_code),
+                kind: Some("project"),
+                limit: Some(4),
                 ..Default::default()
             })
             .unwrap_or_default();
-        let tags = self.store.tag_cloud(lang_code).unwrap_or_default();
+        let notes_total = self.store.count_kind(lang_code, "note").unwrap_or(0);
+        let projects_total = self.store.count_kind(lang_code, "project").unwrap_or(0);
         let chrome = self.chrome(req, lang, &profile, self.is_owner(req));
-        let html = templates::home(&chrome, &latests, &tags, all.len() as i64);
+        let html = templates::home(
+            &chrome,
+            &latests,
+            &projects,
+            notes_total,
+            projects_total,
+        );
         Response::html(200, html)
     }
 
-    fn articles_page(&self, req: &Request, lang: Lang, tag: Option<&str>) -> Response {
+    /// `/notes`, `/projects` and the tag filters share one renderer.
+    fn section_page(&self, req: &Request, lang: Lang, kind: Kind, tag: Option<&str>) -> Response {
         let profile = self.profile_now();
         let query = req
             .query_param("q")
             .map(|q| http::truncate_chars(q.trim(), 80))
             .filter(|q| !q.is_empty());
-        let articles = self
+        let entries = self
             .store
             .list_articles(&ArticleFilter {
                 lang: Some(lang.code()),
+                kind: Some(kind.code()),
                 tag,
                 query: query.as_deref(),
                 ..Default::default()
             })
             .unwrap_or_default();
-        let tags = self.store.tag_cloud(lang.code()).unwrap_or_default();
+        let tags = self.store.tag_cloud(lang.code(), kind.code()).unwrap_or_default();
         let chrome = self.chrome(req, lang, &profile, self.is_owner(req));
-        let html = templates::articles_index(&chrome, &articles, &tags, tag, query.as_deref());
+        let html = templates::section_index(&chrome, kind, &entries, &tags, tag, query.as_deref());
         Response::html(200, html)
     }
 
     fn tags_page(&self, req: &Request, lang: Lang) -> Response {
         let profile = self.profile_now();
-        let tags = self.store.tag_cloud(lang.code()).unwrap_or_default();
+        let tags = self.store.tag_cloud(lang.code(), "note").unwrap_or_default();
         let all = self
             .store
             .list_articles(&ArticleFilter {
                 lang: Some(lang.code()),
+                kind: Some("note"),
                 ..Default::default()
             })
             .unwrap_or_default();
         let chrome = self.chrome(req, lang, &profile, self.is_owner(req));
-        let html = templates::articles_index(&chrome, &all, &tags, None, None);
+        let html = templates::section_index(&chrome, Kind::Note, &all, &tags, None, None);
         Response::html(200, html)
     }
 
     fn about_page(&self, req: &Request, lang: Lang) -> Response {
         let profile = self.profile_now();
-        let tags = self.store.tag_cloud(lang.code()).unwrap_or_default();
-        let count = self
-            .store
-            .list_articles(&ArticleFilter {
-                lang: Some(lang.code()),
-                ..Default::default()
-            })
-            .map(|a| a.len() as i64)
-            .unwrap_or(0);
+        let notes = self.store.count_kind(lang.code(), "note").unwrap_or(0);
+        let projects = self.store.count_kind(lang.code(), "project").unwrap_or(0);
         let chrome = self.chrome(req, lang, &profile, self.is_owner(req));
-        let html = templates::about(&chrome, count, &tags);
+        let html = templates::about(&chrome, notes, projects);
         Response::html(200, html)
     }
 
-    fn article_detail(&self, req: &Request, lang: Lang, slug: &str) -> Response {
+    fn entry_detail(&self, req: &Request, lang: Lang, kind: Kind, slug: &str) -> Response {
         let slug = slug.trim();
         let article = match self.store.article_by_slug(lang.code(), slug) {
-            Ok(Some(a)) if a.is_published() => a,
+            // A note must not be reachable under /projects and vice versa.
+            Ok(Some(a)) if a.is_published() && a.kind == kind.code() => a,
             _ => return self.not_found(req, lang),
         };
         let other = self
@@ -429,6 +462,7 @@ impl App {
             .store
             .list_articles(&ArticleFilter {
                 lang: Some(lang.code()),
+                kind: Some(kind.code()),
                 limit: Some(24),
                 ..Default::default()
             })
@@ -454,7 +488,7 @@ impl App {
         let _ = self.store.increment_views(article.id);
         let profile = self.profile_now();
         let chrome = self.chrome(req, lang, &profile, self.is_owner(req));
-        let html = templates::article_page(&chrome, &article, other.as_ref(), &related);
+        let html = templates::entry_page(&chrome, &article, other.as_ref(), &related);
         Response::html(200, html)
     }
 
@@ -660,12 +694,13 @@ impl App {
 
     fn cabinet_editor_page(&self, req: &Request, article: Option<&Article>, errors: &[String]) -> Response {
         let profile = self.profile_now();
-        let tags = self.store.tag_cloud("ru").unwrap_or_default();
+        let tags = self.store.tag_cloud("ru", "note").unwrap_or_default();
+        let project_tags = self.store.tag_cloud("ru", "project").unwrap_or_default();
         let chrome = self.chrome(req, Lang::Ru, &profile, true);
         let flash = self.flash(req);
         Response::html(
             200,
-            templates::cabinet_editor(&chrome, article, &tags, flash.as_deref(), errors),
+            templates::cabinet_editor(&chrome, article, &tags, &project_tags, flash.as_deref(), errors),
         )
     }
 
@@ -686,6 +721,7 @@ impl App {
             slug = slug_of(&title);
         }
         let status = if get("status") == "published" { "published" } else { "draft" };
+        let kind = if get("kind") == "project" { "project" } else { "note" };
         let featured = get("featured") == "1";
         let summary = http::truncate_chars(get("summary").trim(), 320);
         let body = get("body_md");
@@ -735,6 +771,7 @@ impl App {
             body_md: &body,
             tags: &tags,
             status,
+            kind,
             featured,
             published_at,
         };
@@ -961,7 +998,7 @@ mod tests {
     #[test]
     fn article_detail_and_escalation_guard() {
         let app = temp_app("detail");
-        let resp = app.handle(&request("GET", "/articles/http-server-bez-krejtov"));
+        let resp = app.handle(&request("GET", "/notes/http-server-bez-krejtov"));
         assert_eq!(resp.status, 200);
         let cabinet = app.handle(&request("GET", "/cabinet"));
         assert_eq!(cabinet.status, 303);
@@ -1085,7 +1122,7 @@ mod tests {
             .unwrap();
 
         // draft is not public
-        assert_eq!(app.handle(&request("GET", "/articles/draft-entry")).status, 404);
+        assert_eq!(app.handle(&request("GET", "/notes/draft-entry")).status, 404);
 
         // publish it
         let mut publish = request("POST", &format!("/cabinet/articles/{id}/status"));
@@ -1098,7 +1135,7 @@ mod tests {
         publish.body = b"status=published".to_vec();
         let resp = app.handle(&publish);
         assert_eq!(resp.status, 303);
-        assert_eq!(app.handle(&request("GET", "/articles/draft-entry")).status, 200);
+        assert_eq!(app.handle(&request("GET", "/notes/draft-entry")).status, 200);
 
         // delete it
         let mut delete = request("POST", &format!("/cabinet/articles/{id}/delete"));
@@ -1107,7 +1144,7 @@ mod tests {
         delete.body.clear();
         let resp = app.handle(&delete);
         assert_eq!(resp.status, 303);
-        assert_eq!(app.handle(&request("GET", "/articles/draft-entry")).status, 404);
+        assert_eq!(app.handle(&request("GET", "/notes/draft-entry")).status, 404);
     }
 
     #[test]
@@ -1138,11 +1175,10 @@ mod tests {
             .expect("ru article");
         assert_eq!(ru.translation_key, en.translation_key);
 
-        let page = app.handle(&request("GET", "/articles/http-server-without-crates"));
+        let page = app.handle(&request("GET", "/en/notes/http-server-without-crates"));
         assert_eq!(page.status, 200);
-        assert!(String::from_utf8(page.body)
-            .unwrap()
-            .contains("/en/articles/http-server-without-crates"));
+        let body = String::from_utf8(page.body).unwrap();
+        assert!(body.contains("class=\"lang-swap\" href=\"/notes/http-server-without-crates\""));
 
         // A logged-in owner hitting /login is sent to the cabinet.
         let mut login = request("GET", "/login");

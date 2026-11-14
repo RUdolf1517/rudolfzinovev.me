@@ -48,6 +48,29 @@ impl Lang {
     }
 }
 
+/// What a row in `articles` is: a personal note or a catalogue project.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Note,
+    Project,
+}
+
+impl Kind {
+    pub fn code(self) -> &'static str {
+        match self {
+            Kind::Note => "note",
+            Kind::Project => "project",
+        }
+    }
+
+    pub fn section(self) -> &'static str {
+        match self {
+            Kind::Note => "notes",
+            Kind::Project => "projects",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Article {
     pub id: i64,
@@ -65,11 +88,13 @@ pub struct Article {
     pub updated_at: i64,
     pub created_at: i64,
     pub views: i64,
+    /// `note` — a personal entry; `project` — a case in the project catalogue.
+    pub kind: String,
 }
 
 impl Article {
     pub fn from_row(row: &[SqlVal]) -> Option<Article> {
-        if row.len() < 15 {
+        if row.len() < 16 {
             return None;
         }
         Some(Article {
@@ -88,6 +113,7 @@ impl Article {
             updated_at: row[12].as_i64(),
             created_at: row[13].as_i64(),
             views: row[14].as_i64(),
+            kind: row[15].as_str().to_string(),
         })
     }
 
@@ -97,6 +123,19 @@ impl Article {
 
     pub fn is_published(&self) -> bool {
         self.status == "published"
+    }
+
+    pub fn is_project(&self) -> bool {
+        self.kind == "project"
+    }
+
+    /// URL segment for this entry's kind.
+    pub fn section(&self) -> &'static str {
+        if self.is_project() {
+            "projects"
+        } else {
+            "notes"
+        }
     }
 
     pub fn tag_list(&self) -> Vec<String> {

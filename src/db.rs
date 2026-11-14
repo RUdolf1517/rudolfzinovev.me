@@ -12,7 +12,7 @@ use crate::sqlite::{Connection, SqlParam};
 pub const SESSION_TTL_SECS: i64 = 60 * 60 * 24 * 30;
 
 const ARTICLE_COLS: &str = "id, translation_key, lang, slug, title, summary, body_md, tags, \
-     status, featured, reading_minutes, published_at, updated_at, created_at, views";
+     status, featured, reading_minutes, published_at, updated_at, created_at, views, kind";
 
 pub struct Store {
     db: Connection,
@@ -30,11 +30,14 @@ pub struct NewArticle<'a> {
     pub status: &'a str,
     pub featured: bool,
     pub published_at: Option<i64>,
+    /// `note` (a personal entry) or `project` (a case in the catalogue).
+    pub kind: &'a str,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct ArticleFilter<'a> {
     pub lang: Option<&'a str>,
+    pub kind: Option<&'a str>,
     pub tag: Option<&'a str>,
     pub query: Option<&'a str>,
     pub include_drafts: bool,
@@ -46,6 +49,7 @@ impl Store {
         let db = Connection::open(path)?;
         let store = Store { db };
         store.migrate()?;
+        store.migrate_kind()?;
         Ok(store)
     }
 
@@ -89,6 +93,7 @@ impl Store {
                  summary TEXT NOT NULL DEFAULT '',
                  body_md TEXT NOT NULL DEFAULT '',
                  tags TEXT NOT NULL DEFAULT '',
+                 kind TEXT NOT NULL DEFAULT 'note',
                  status TEXT NOT NULL DEFAULT 'draft',
                  featured INTEGER NOT NULL DEFAULT 0,
                  reading_minutes INTEGER NOT NULL DEFAULT 1,
@@ -100,6 +105,8 @@ impl Store {
              );
              CREATE INDEX IF NOT EXISTS idx_articles_lang_status
                  ON articles (lang, status, published_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_articles_kind
+                 ON articles (lang, kind, status, published_at DESC);
              CREATE TABLE IF NOT EXISTS sessions (
                  token_hash TEXT PRIMARY KEY,
                  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -124,11 +131,30 @@ impl Store {
                  visitor_hash TEXT NOT NULL DEFAULT ''
              );
              CREATE INDEX IF NOT EXISTS idx_views_ts ON views (ts DESC);
-             INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');",
+             INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2');",
         )
     }
 
     // ---------------------------------------------------------------- owner
+
+    /// Older databases predate `kind`: add the column and give every existing
+    /// row the default. Idempotent, so it runs on every start.
+    fn migrate_kind(&self) -> Result<(), String> {
+        let has_kind = self
+            .db
+            .query_rows("SELECT name FROM pragma_table_info('articles')", &[])?
+            .iter()
+            .any(|r| r[0].as_str() == "kind");
+        if !has_kind {
+            self.db
+                .execute("ALTER TABLE articles ADD COLUMN kind TEXT NOT NULL DEFAULT 'note'", &[])?;
+        }
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_articles_kind ON articles (lang, kind, status, published_at DESC)",
+            &[],
+        )?;
+        Ok(())
+    }
 
     pub fn owner_exists(&self) -> Result<bool, String> {
         let row = self
@@ -332,6 +358,11 @@ impl Store {
             params.push(SqlParam::Text(lang));
             idx += 1;
         }
+        if let Some(kind) = filter.kind {
+            sql.push_str(&format!(" AND kind = ?{idx}"));
+            params.push(SqlParam::Text(kind));
+            idx += 1;
+        }
         if let Some(q) = filter.query {
             let needle = format!("%{}%", q.trim().to_lowercase());
             sql.push_str(&format!(
@@ -353,10 +384,10 @@ impl Store {
     }
 
     /// Tags for one language, ordered by usage count.
-    pub fn tag_cloud(&self, lang: &str) -> Result<Vec<(String, String, i64)>, String> {
+    pub fn tag_cloud(&self, lang: &str, kind: &str) -> Result<Vec<(String, String, i64)>, String> {
         let rows = self.db.query_rows(
-            "SELECT tags FROM articles WHERE lang = ?1 AND status = 'published'",
-            &[SqlParam::Text(lang)],
+            "SELECT tags FROM articles WHERE lang = ?1 AND kind = ?2 AND status = 'published'",
+            &[SqlParam::Text(lang), SqlParam::Text(kind)],
         )?;
         let mut counts: Vec<(String, i64)> = Vec::new();
         for row in rows {
@@ -399,9 +430,9 @@ impl Store {
         let updated_at = if published_at > 0 && published_at < ts { published_at } else { ts };
         self.db.insert(
             "INSERT INTO articles
-               (translation_key, lang, slug, title, summary, body_md, tags, status, featured,
+               (translation_key, lang, slug, title, summary, body_md, tags, kind, status, featured,
                 reading_minutes, published_at, updated_at, created_at, views)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 0)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0)",
             &[
                 SqlParam::Text(&key),
                 SqlParam::Text(input.lang),
@@ -410,6 +441,7 @@ impl Store {
                 SqlParam::Text(input.summary),
                 SqlParam::Text(input.body_md),
                 SqlParam::Text(input.tags),
+                SqlParam::Text(input.kind),
                 SqlParam::Text(input.status),
                 SqlParam::Int(input.featured as i64),
                 SqlParam::Int(minutes),
@@ -432,9 +464,9 @@ impl Store {
         let minutes = markdown::estimate_reading_minutes(input.body_md);
         self.db.execute(
             "UPDATE articles SET lang = ?1, slug = ?2, title = ?3, summary = ?4, body_md = ?5,
-                 tags = ?6, status = ?7, featured = ?8, reading_minutes = ?9,
-                 published_at = ?10, updated_at = ?11
-             WHERE id = ?12",
+                 tags = ?6, kind = ?7, status = ?8, featured = ?9, reading_minutes = ?10,
+                 published_at = ?11, updated_at = ?12
+             WHERE id = ?13",
             &[
                 SqlParam::Text(input.lang),
                 SqlParam::Text(input.slug),
@@ -442,6 +474,7 @@ impl Store {
                 SqlParam::Text(input.summary),
                 SqlParam::Text(input.body_md),
                 SqlParam::Text(input.tags),
+                SqlParam::Text(input.kind),
                 SqlParam::Text(input.status),
                 SqlParam::Int(input.featured as i64),
                 SqlParam::Int(minutes),
@@ -791,12 +824,25 @@ impl Store {
                 summary: seed.summary,
                 body_md: seed.body,
                 tags: seed.tags,
+                kind: seed.kind,
                 status: "published",
                 featured: seed.featured,
                 published_at: Some(seed.published_at),
             })?;
         }
         Ok(true)
+    }
+
+    /// Published entries of one kind in one language.
+    pub fn count_kind(&self, lang: &str, kind: &str) -> Result<i64, String> {
+        Ok(self
+            .db
+            .query_one(
+                "SELECT COUNT(*) FROM articles WHERE lang = ?1 AND kind = ?2 AND status = 'published'",
+                &[SqlParam::Text(lang), SqlParam::Text(kind)],
+            )?
+            .map(|r| r[0].as_i64())
+            .unwrap_or(0))
     }
 
     pub fn article_count(&self) -> Result<i64, String> {
@@ -837,6 +883,7 @@ struct Seed {
     title: &'static str,
     summary: &'static str,
     tags: &'static str,
+    kind: &'static str,
     body: &'static str,
     featured: bool,
     published_at: i64,
@@ -847,12 +894,37 @@ const BASE: i64 = 1_762_000_000; // 2025-11-14 — fixed, deterministic seed tim
 
 const SEEDS: &[Seed] = &[
     Seed {
+        key: "site-itself",
+        lang: "ru",
+        slug: "etot-sajt",
+        title: "Этот сайт: узел на Rust без зависимостей",
+        summary: "Персональный узел целиком: HTTP-сервер, база, шаблоны и кабинет — четыре тысячи строк и ни одного внешнего крейта.",
+        tags: "rust, ssr, инфраструктура",
+        kind: "project",
+        featured: false,
+        published_at: BASE - 7 * DAY,
+        body: "# Проект: этот узел\n\nСайт, который вы читаете: HTTP/1.1 на `std::net`, SQLite через FFI, шаблоны на строках, ноль внешних крейтов и ноль запросов в браузере за пределами одного HTML-документа.\n\n## Что внутри\n\n- четыре рабочих потока, keep-alive на 15 секунд, gzip через `libz`, ETag и `304`;\n- кабинет владельца с сессиями, CSRF и журналом посещений;\n- шаблонный движок на форматировании строк — без proc-макросов и без `build.rs`.\n\n## Что проверяется\n\n| Метрика | Значение |\n| --- | --- |\n| Главная, gzip | ≈ 9 КБ |\n| Рендер | доли миллисекунды |\n| Внешние запросы | 0 |\n\n> [!note] Бюджет страницы — не украшение в README, а ограничение, которое проверяется тестом на каждом коммите.\n\n## Что дальше\n\nСжатие статики на старте, экспорт базы одной командой и режим только для чтения на время бэкапа.",
+    },
+    Seed {
+        key: "site-itself",
+        lang: "en",
+        slug: "this-site",
+        title: "This site: a Rust node with no dependencies",
+        summary: "The whole personal node: HTTP server, database, templates and cabinet — four thousand lines and not a single external crate.",
+        tags: "rust, ssr, infrastructure",
+        kind: "project",
+        featured: false,
+        published_at: BASE - 7 * DAY,
+        body: "# Project: this node\n\nThe site you are reading: HTTP/1.1 on `std::net`, SQLite through FFI, templates built from strings, zero external crates and zero browser requests beyond the single HTML document.\n\n## What is inside\n\n- four worker threads, 15 second keep-alive, gzip through `libz`, ETag and `304`;\n- an owner cabinet with sessions, CSRF and a visit journal;\n- a template engine made of string formatting — no proc macros, no `build.rs`.\n\n## What gets measured\n\n| Metric | Value |\n| --- | --- |\n| Home page, gzip | ≈ 9 KB |\n| Render | fractions of a millisecond |\n| External requests | 0 |\n\n> [!note] A page budget is not a badge in the README, it is a constraint enforced by a test on every commit.\n\n## Next\n\nCompress static assets at boot, export the database in one command, and a read-only mode while a backup runs.",
+    },
+    Seed {
         key: "zero-crate-http",
         lang: "ru",
         slug: "http-server-bez-krejtov",
         title: "HTTP/1.1 на голом Rust и libc",
         summary: "Как собрать честный многопоточный сервер без единого внешнего крейта: парсинг запроса, keep-alive, ETag, gzip и бюджет ответа.",
         tags: "rust, http, производительность",
+        kind: "note",
         featured: true,
         published_at: BASE,
         body: "# Зачем отказываться от фреймворков\n\nКогда весь узел — это несколько маршрутов и база SQLite, любой веб-фреймворк приносит больше дерева зависимостей, чем кода в вашем приложении. Здесь нет `async`, нет runtime и нет `Cargo.lock` на триста пакетов — только `std::net` и системные библиотеки.\n\n## Анатомия запроса\n\nМинимальный парсер HTTP/1.1 читает строку запроса, заголовки и тело. Всё, что нужно для сайта:\n\n- метод и путь с query-строкой;\n- `Cookie`, `If-None-Match`, `Accept-Encoding`, `User-Agent`;\n- `Content-Length` для форм и `Origin` для CSRF-проверки.\n\n```rust\nlet mut buf = [0u8; 16 * 1024];\nlet n = stream.read(&mut buf)?;\nlet head = std::str::from_utf8(&buf[..n])?;\nlet mut lines = head.split(\"\\r\\n\");\nlet request_line = lines.next().unwrap_or_default();\n```\n\n## Что даёт keep-alive\n\nБраузер открывает соединение и переиспользует его для стилей, скрипта, шрифта и иконки. При `Connection: keep-alive` и таймауте в 10 секунд мы экономим три TCP-рукопожатия на каждый визит — это десятки миллисекунд на мобильной сети.\n\n> [!note] Три круга по сети стоят дороже, чем весь серверный рендер этой страницы. Сначала убирайте круги, потом оптимизируйте код.\n\n| Оптимизация | Экономия |\n| --- | --- |\n| keep-alive | 20–60 мс |\n| gzip для HTML | 70–80% байт |\n| ETag + 304 | весь HTML-ответ |\n| инлайн CSS | один RTT |\n\n## Честный бюджет\n\n> Страница должна собраться быстрее, чем браузер успеет нарисовать спиннер.\n\nРендер меряется в микросекундах и уходит в заголовок `Server-Timing` — его видно в панели разработчика, но он не занимает ни байта в разметке. Если число выросло, значит, шаблон потяжелел.",
@@ -864,6 +936,7 @@ const SEEDS: &[Seed] = &[
         title: "HTTP/1.1 on bare Rust and libc",
         summary: "Building an honest multi-threaded server with zero external crates: request parsing, keep-alive, ETag, gzip and a response budget.",
         tags: "rust, http, performance",
+        kind: "note",
         featured: true,
         published_at: BASE,
         body: "# Why drop the frameworks\n\nWhen the whole node is a handful of routes plus a SQLite file, any web framework brings more dependency tree than application code. No `async`, no runtime, no three-hundred-package `Cargo.lock` — just `std::net` and system libraries.\n\n## Anatomy of a request\n\nA minimal HTTP/1.1 parser reads the request line, headers and body. Everything this site needs:\n\n- method and path with query string;\n- `Cookie`, `If-None-Match`, `Accept-Encoding`, `User-Agent`;\n- `Content-Length` for forms and `Origin` for CSRF checks.\n\n```rust\nlet mut buf = [0u8; 16 * 1024];\nlet n = stream.read(&mut buf)?;\nlet head = std::str::from_utf8(&buf[..n])?;\nlet mut lines = head.split(\"\\r\\n\");\nlet request_line = lines.next().unwrap_or_default();\n```\n\n## What keep-alive buys you\n\nThe browser opens a connection and reuses it for styles, script, font and icon. With `Connection: keep-alive` and a 10 second idle timeout we skip three TCP handshakes per visit — tens of milliseconds on a mobile network.\n\n> [!note] Three round trips cost more than the entire server render of this page. Remove round trips first, optimize code second.\n\n| Optimization | Saving |\n| --- | --- |\n| keep-alive | 20–60 ms |\n| gzip for HTML | 70–80% bytes |\n| ETag + 304 | the entire HTML body |\n| inline CSS | one RTT |\n\n## An honest budget\n\n> A page should assemble faster than the browser can draw a spinner.\n\nRender time is measured in microseconds and sent as a `Server-Timing` header — visible in devtools, costing not a single byte of markup. When the number grows, the template got heavier.",
@@ -875,6 +948,7 @@ const SEEDS: &[Seed] = &[
         title: "SQLite без ORM: WAL, подготовленные выражения и честные типы",
         summary: "Один файл базы, четыре прагмы и тонкая обёртка над C API. Как получить надёжное хранилище без миграционных фреймворков.",
         tags: "sqlite, rust, хранение данных",
+        kind: "note",
         featured: false,
         published_at: BASE - 9 * DAY,
         body: "# Один файл вместо кластера\n\nДля персонального сайта база — это файл на диске. `journal_mode = WAL` позволяет читателям не блокировать писателя, а `synchronous = NORMAL` убирает лишний `fsync` на каждую транзакцию, сохраняя устойчивость к падению процесса.\n\n## Прагмы, которые действительно важны\n\n```sql\nPRAGMA journal_mode = WAL;\nPRAGMA synchronous = NORMAL;\nPRAGMA foreign_keys = ON;\nPRAGMA busy_timeout = 5000;\n```\n\n- `busy_timeout` превращает редкие конфликты блокировок в короткое ожидание вместо ошибки;\n- `foreign_keys` включается отдельно для каждого соединения — об этом легко забыть;\n- `cache_size` в килобайтах с минусом задаёт размер страничного кеша.\n\n## Обёртка над C API\n\nОбёртка занимает четыреста строк: открытие, подготовка, связывание параметров, шаг, извлечение строк. Параметры передаются через `sqlite3_bind_text` с деструктором `SQLITE_TRANSIENT`, чтобы SQLite сам скопировал строку и не зависел от времени жизни Rust-значения.\n\n| Слой | Строк кода |\n| --- | --- |\n| FFI-объявления | ~60 |\n| Обёртка соединения | ~300 |\n| Схема и запросы | ~400 |\n\n> Осторожность с `SQLITE_TRANSIENT` важнее, чем кажется: это классический источник порчи данных при FFI.\n\n## Миграции без фреймворка\n\nСхема создаётся через `CREATE TABLE IF NOT EXISTS`, а версия хранится в таблице `meta`. Для персонального сайта этого достаточно: изменения применяются идемпотентно при старте.",
@@ -886,6 +960,7 @@ const SEEDS: &[Seed] = &[
         title: "SQLite without an ORM: WAL, prepared statements, honest types",
         summary: "One database file, four pragmas and a thin wrapper over the C API. Reliable storage without a migration framework.",
         tags: "sqlite, rust, storage",
+        kind: "note",
         featured: false,
         published_at: BASE - 9 * DAY,
         body: "# One file instead of a cluster\n\nFor a personal site the database is a file on disk. `journal_mode = WAL` lets readers proceed while a writer works, and `synchronous = NORMAL` drops a redundant `fsync` per transaction while staying crash-safe for the process.\n\n## The pragmas that actually matter\n\n```sql\nPRAGMA journal_mode = WAL;\nPRAGMA synchronous = NORMAL;\nPRAGMA foreign_keys = ON;\nPRAGMA busy_timeout = 5000;\n```\n\n- `busy_timeout` turns rare lock conflicts into a short wait instead of an error;\n- `foreign_keys` is per connection — easy to forget;\n- a negative `cache_size` is kilobytes of page cache.\n\n## Wrapping the C API\n\nThe wrapper is four hundred lines: open, prepare, bind, step, extract. Text parameters go through `sqlite3_bind_text` with the `SQLITE_TRANSIENT` destructor so SQLite copies the string and never depends on the lifetime of a Rust value.\n\n| Layer | Lines of code |\n| --- | --- |\n| FFI declarations | ~60 |\n| Connection wrapper | ~300 |\n| Schema and queries | ~400 |\n\n> Care with `SQLITE_TRANSIENT` matters more than it looks: it is the classic FFI data-corruption bug.\n\n## Migrations without a framework\n\nThe schema is created with `CREATE TABLE IF NOT EXISTS` and the version lives in a `meta` table. For a personal site that is enough: changes apply idempotently at boot.",
@@ -897,6 +972,7 @@ const SEEDS: &[Seed] = &[
         title: "Бюджет 14 килобайт: SSR-шаблоны, которые быстрее фреймворка",
         summary: "Почему серверный рендер вручную даёт лучший LCP, как считать бюджет страницы в байтах и зачем вообще нужен JavaScript.",
         tags: "производительность, ssr, дизайн",
+        kind: "note",
         featured: false,
         published_at: BASE - 21 * DAY,
         body: "# Ноль внешних запросов\n\nСамый быстрый сторонний ресурс — тот, которого нет. Весь CSS инлайнится в `<head>`, шрифты — системные, аналитика — собственный счётчик на сервере. Браузер делает ровно один запрос за документом.\n\n## Из чего складывается страница\n\n| Компонент | Бюджет |\n| --- | --- |\n| HTML + инлайн CSS | ≤ 14 КБ gzip |\n| JS | ≤ 2 КБ gzip |\n| шрифты | 0 |\n| аналитика | 0 |\n\n## Одна бумага, без переключателей\n\nТёмной темы нет намеренно: страница должна выглядеть как лист бумаги при любом освещении, и это единственный вид, который не приходится проверять дважды. Все цвета — переменные в `:root`, включая тон самой бумаги.\n\n```css\n:root {\n  --paper: #f3ece0;\n  --ink: #1c1a16;\n  --accent: #8a4a1d;\n}\n```\n\n> [!note] Дизайн без картинок — это дисциплина типографики, а не аскетизм. Единственный графический элемент страницы — сам текст.\n\n## Прогрессивное улучшение\n\nJavaScript не обязателен: навигация, поиск и формы работают как обычные ссылки и `POST`-запросы. Скрипт только добавляет копирование кода, подтверждение удаления и счётчики в редакторе. Если он не загрузится — сайт останется полностью рабочим.",
@@ -908,6 +984,7 @@ const SEEDS: &[Seed] = &[
         title: "The 14 kilobyte budget: SSR templates faster than a framework",
         summary: "Why hand-written server rendering wins on LCP, how to keep a page budget in bytes, and why JavaScript is optional.",
         tags: "performance, ssr, design",
+        kind: "note",
         featured: false,
         published_at: BASE - 21 * DAY,
         body: "# Zero external requests\n\nThe fastest third-party asset is the one you never ship. All CSS is inlined in `<head>`, fonts are system fonts, analytics is a server-side counter. The browser makes exactly one request for the document.\n\n## What a page is made of\n\n| Component | Budget |\n| --- | --- |\n| HTML + inline CSS | ≤ 14 KB gzip |\n| JS | ≤ 2 KB gzip |\n| fonts | 0 |\n| analytics | 0 |\n\n## One paper, no switches\n\nThere is deliberately no dark theme: the page should read as a sheet of paper under any light, and that is the one look you never have to check twice. Every colour is a variable in `:root`, including the tint of the paper itself.\n\n```css\n:root {\n  --paper: #f3ece0;\n  --ink: #1c1a16;\n  --accent: #8a4a1d;\n}\n```\n\n> [!note] Design without images is typographic discipline, not asceticism. The only graphic element on the page is the text itself.\n\n## Progressive enhancement\n\nJavaScript is optional: navigation, search and forms work as plain links and `POST` requests. The script only adds code copying, delete confirmation and editor counters. If it fails to load, the site stays fully usable.",
@@ -919,6 +996,7 @@ const SEEDS: &[Seed] = &[
         title: "Узкое место на сервере за пять евро",
         summary: "Что реально ограничивает персональный сайт: не CPU, не память и не Rust, а TLS-рукопожатия, холодный кеш страниц и размер ответа.",
         tags: "инфраструктура, tls, производительность",
+        kind: "note",
         featured: false,
         published_at: BASE - 34 * DAY,
         body: "# Что мы измеряем\n\nОдин vCPU и гигабайт памяти выдерживают тысячи запросов в секунду к статическому HTML. Значит, узкое место — не код приложения.\n\n## Порядок величины задержек\n\n- TLS-рукопожатие без session resumption: 40–120 мс;\n- открытие нового TCP-соединения: 20–60 мс;\n- рендер страницы: 200–800 **микросекунд**;\n- чтение статьи из SQLite: 30–90 микросекунд.\n\n| Источник задержки | Доля |\n| --- | --- |\n| сеть и TLS | ~85% |\n| шаблонизация | ~1% |\n| база | < 1% |\n\n> Оптимизировать рендер дальше имеет смысл только после того, как исчезли лишние сетевые круги.\n\n## Практический вывод\n\n1. Терминируйте TLS на обратном прокси с HTTP/2 и OCSP stapling.\n2. Отдавайте `Cache-Control: public, max-age=...` для статики и `ETag` для HTML.\n3. Держите ответ в одном пакете — до 14 КБ gzip.\n4. Логи пишите в SQLite, а не в stdout через пайп в journald.\n\n## Резервное копирование\n\nОдин файл базы, ежедневный `sqlite3 .backup` в отдельный каталог, ротация на семь дней. Этого достаточно, чтобы восстановить узел за минуту.",
@@ -930,6 +1008,7 @@ const SEEDS: &[Seed] = &[
         title: "The bottleneck on a five euro box",
         summary: "What actually limits a personal site: not CPU, not memory and not Rust, but TLS handshakes, cold page cache and response size.",
         tags: "infrastructure, tls, performance",
+        kind: "note",
         featured: false,
         published_at: BASE - 34 * DAY,
         body: "# What we measure\n\nOne vCPU and a gigabyte of RAM will serve thousands of requests per second of static HTML. So the bottleneck is not the application code.\n\n## Orders of magnitude\n\n- TLS handshake without session resumption: 40–120 ms;\n- new TCP connection: 20–60 ms;\n- page render: 200–800 **microseconds**;\n- reading an article from SQLite: 30–90 microseconds.\n\n| Source of latency | Share |\n| --- | --- |\n| network and TLS | ~85% |\n| templating | ~1% |\n| database | < 1% |\n\n> Optimizing the render further only makes sense after the extra network round trips are gone.\n\n## Practical conclusions\n\n1. Terminate TLS at a reverse proxy with HTTP/2 and OCSP stapling.\n2. Send `Cache-Control: public, max-age=...` for static assets and `ETag` for HTML.\n3. Keep the response in a single packet — 14 KB gzip or less.\n4. Write logs to SQLite, not to stdout piped into journald.\n\n## Backups\n\nOne database file, a nightly `sqlite3 .backup` into a separate directory, seven day rotation. Enough to restore the node in a minute.",
@@ -951,11 +1030,19 @@ mod tests {
     #[test]
     fn seeds_bilingual_pairs_and_filters() {
         let store = temp_db("seed");
-        assert_eq!(store.article_count().unwrap(), 8);
+        assert_eq!(store.article_count().unwrap(), 10);
         let ru = store
             .list_articles(&ArticleFilter { lang: Some("ru"), ..Default::default() })
             .unwrap();
-        assert_eq!(ru.len(), 4);
+        assert_eq!(ru.len(), 5);
+        // One RU/EN project pair, four note pairs.
+        assert_eq!(store.count_kind("ru", "project").unwrap(), 1);
+        assert_eq!(store.count_kind("ru", "note").unwrap(), 4);
+        let projects = store
+            .list_articles(&ArticleFilter { lang: Some("ru"), kind: Some("project"), ..Default::default() })
+            .unwrap();
+        assert_eq!(projects.len(), 1);
+        assert!(projects[0].is_project());
         let tag = store
             .list_articles(&ArticleFilter { lang: Some("en"), tag: Some("sqlite"), ..Default::default() })
             .unwrap();

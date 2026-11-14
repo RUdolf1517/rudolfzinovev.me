@@ -2,6 +2,7 @@
 //! requests: CSS and JS are inlined into the document, icons are data URIs.
 
 use crate::i18n::{self, Lang, t};
+use crate::models::Kind;
 use crate::markdown::{html_escape, render_markdown};
 use crate::models::{Article, BackupStats, Profile, SessionInfo, Telemetry};
 
@@ -90,7 +91,10 @@ impl Chrome<'_> {
 
     fn is_active(&self, key: &str) -> bool {
         let href = self.href(key);
-        self.path == href || (key == "articles" && self.path.contains("/articles"))
+        // A detail page keeps its section lit in the running head.
+        self.path == href
+            || matches!(key, "notes" | "projects" | "about")
+                && self.path.starts_with(&format!("{href}/"))
     }
 }
 
@@ -149,7 +153,11 @@ fn header(chrome: &Chrome<'_>) -> String {
         esc(&chrome.profile.owner_name)
     );
     h.push_str("<nav class=\"run-nav\" aria-label=\"Primary\">");
-    for (key, label) in [("articles", tr.nav_articles), ("about", tr.nav_about)] {
+    for (key, label) in [
+        ("projects", tr.nav_projects),
+        ("notes", tr.nav_notes),
+        ("about", tr.nav_about),
+    ] {
         w!(
             h,
             "<a href=\"{}\"{}>{}</a>",
@@ -215,6 +223,22 @@ fn layout(chrome: &Chrome<'_>, title: &str, description: &str, body: &str) -> St
     h
 }
 
+fn search_box(chrome: &Chrome<'_>, section: &str, query: Option<&str>) -> String {
+    let tr = chrome.t();
+    format!(
+        "<form class=\"search\" action=\"{}/{}\" method=\"get\" role=\"search\">\
+         <div class=\"search-field\">\
+         <input id=\"q\" name=\"q\" type=\"search\" value=\"{}\" placeholder=\"{}\" aria-label=\"{}\" autocomplete=\"off\" data-search-input>\
+         <button type=\"submit\">{}</button></div></form>",
+        chrome.lang.prefix(),
+        section,
+        esc(query.unwrap_or("")),
+        tr.search_placeholder,
+        tr.search_label,
+        tr.search_submit
+    )
+}
+
 // ------------------------------------------------------------------- home
 
 /// Year of an entry's date, used to break the ledger into catalogue blocks.
@@ -244,9 +268,7 @@ fn article_row(chrome: &Chrome<'_>, a: &Article) -> String {
     let tr = chrome.t();
     let mut h = String::new();
     h.push_str("<li class=\"entry\"><a href=\"");
-    h.push_str(a.lang_enum().prefix());
-    h.push_str("/articles/");
-    h.push_str(&esc(&a.slug));
+    h.push_str(&entry_path(a.lang_enum().prefix(), a.section(), &a.slug));
     h.push_str("\">");
     w!(h, "<span class=\"entry-line\"><span class=\"entry-no\">{}</span>", catalogue_no(a.id));
     w!(h, "<span class=\"entry-title\">{}</span>", esc(&a.title));
@@ -270,6 +292,11 @@ fn article_row(chrome: &Chrome<'_>, a: &Article) -> String {
     h
 }
 
+/// Public URL of one entry: `/notes/<slug>`, `/en/projects/<slug>`, …
+pub fn entry_path(prefix: &str, section: &str, slug: &str) -> String {
+    format!("{prefix}/{section}/{}", esc(slug))
+}
+
 /// Stable catalogue number for an entry — the site's quiet claim to being an
 /// archive rather than a feed. Two digits, padded, never reused.
 pub fn catalogue_no(id: i64) -> String {
@@ -283,40 +310,59 @@ fn index_no(i: usize) -> String {
 
 // --------------------------------------------------------------- articles
 
-pub fn articles_index(
+/// `/notes`, `/projects` and tag filters: one catalogue, filtered.
+pub fn section_index(
     chrome: &Chrome<'_>,
-    articles: &[Article],
+    kind: Kind,
+    entries: &[Article],
     tags: &[(String, String, i64)],
     active_tag: Option<&str>,
     query: Option<&str>,
 ) -> String {
     let tr = chrome.t();
+    let section = kind.section();
+    let (noun, all_label, intro) = match (kind, chrome.lang) {
+        (Kind::Note, Lang::Ru) => ("заметка", tr.all_articles, tr.notes_intro),
+        (Kind::Note, Lang::En) => ("note", tr.all_articles, tr.notes_intro),
+        (Kind::Project, Lang::Ru) => ("проект", tr.all_projects, tr.projects_intro),
+        (Kind::Project, Lang::En) => ("project", tr.all_projects, tr.projects_intro),
+    };
     let mut b = String::new();
     b.push_str("<section class=\"section section-first\">\n");
     let heading = if query.is_some() {
         tr.search_results
     } else {
-        tr.all_articles
+        all_label
     };
     w!(b, "<h2 class=\"sec-label\">{}</h2>\n", heading);
     w!(
         b,
-        "<p class=\"sec-note\">{} {}</p>\n",
-        articles.len(),
-        match chrome.lang {
-            Lang::Ru => i18n::ru_plural(articles.len() as i64, "запись", "записи", "записей"),
-            Lang::En => if articles.len() == 1 { "entry" } else { "entries" },
+        "<p class=\"sec-note\">{} {} · {}</p>\n",
+        entries.len(),
+        match (kind, chrome.lang) {
+            (Kind::Note, Lang::Ru) => i18n::ru_plural(entries.len() as i64, "заметка", "заметки", "заметок"),
+            (Kind::Project, Lang::Ru) => i18n::ru_plural(entries.len() as i64, "проект", "проекта", "проектов"),
+            (_, Lang::En) => {
+                if entries.len() == 1 { noun } else { "PLURAL" }
+            }
         }
+        .replace(
+            "PLURAL",
+            if kind == Kind::Note { "notes" } else { "projects" }
+        )
+        .as_str(),
+        intro
     );
-    b.push_str(&search_box(chrome, query));
+    b.push_str(&search_box(chrome, section, query));
 
     if !tags.is_empty() {
         b.push_str("<div class=\"chips\">");
         w!(
             b,
-            "<a class=\"chip{}\" href=\"{}/articles\">{}</a>",
+            "<a class=\"chip{}\" href=\"{}/{}\">{}</a>",
             if active_tag.is_none() { " chip-on" } else { "" },
             chrome.lang.prefix(),
+            section,
             tr.all_tags
         );
         for (tag, slug, count) in tags {
@@ -334,15 +380,16 @@ pub fn articles_index(
         b.push_str("</div>");
     }
 
-    if articles.is_empty() {
+    if entries.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", if query.is_some() { tr.search_empty } else { tr.empty_state });
     } else {
-        b.push_str(&ledger(chrome, articles));
+        b.push_str(&ledger(chrome, entries));
         if query.is_some() {
             w!(
                 b,
-                "<p class=\"more\"><a href=\"{}/articles\">{}</a></p>",
+                "<p class=\"more\"><a href=\"{}/{}\">{}</a></p>",
                 chrome.lang.prefix(),
+                section,
                 tr.clear
             );
         }
@@ -351,16 +398,19 @@ pub fn articles_index(
     let title = if let Some(q) = query {
         format!("{} «{}» — {}", tr.search_results, q, chrome.profile.owner_name)
     } else {
-        format!("{} — {}", tr.nav_articles, chrome.profile.owner_name)
+        format!("{} — {}", all_label, chrome.profile.owner_name)
     };
-    layout(chrome, &title, tr.latests_sub, &b)
+    layout(chrome, &title, intro, &b)
 }
+
+// ------------------------------------------------------------------- home
 
 pub fn home(
     chrome: &Chrome<'_>,
-    latests: &[Article],
-    tags: &[(String, String, i64)],
-    article_total: i64,
+    notes: &[Article],
+    projects: &[Article],
+    notes_total: i64,
+    projects_total: i64,
 ) -> String {
     let tr = chrome.t();
     let p = chrome.profile;
@@ -370,7 +420,7 @@ pub fn home(
     };
     let mut b = String::new();
 
-    // Title page: the whole first screen is one statement, not a dashboard.
+    // Title page: the whole first screen is one statement.
     b.push_str("<section class=\"titlepage\">\n");
     w!(b, "<p class=\"tp-kicker\">{}</p>\n", esc(role));
     let (first, rest) = split_name(&p.owner_name);
@@ -382,67 +432,64 @@ pub fn home(
     b.push_str("</h1>\n<div class=\"tp-rule\"></div>\n");
     w!(b, "<p class=\"tp-statement\">{}</p>\n", esc(statement));
 
-    let (entries_word, tags_word) = match chrome.lang {
+    let (notes_word, projects_word) = match chrome.lang {
         Lang::Ru => (
-            i18n::ru_plural(article_total, "запись", "записи", "записей"),
-            i18n::ru_plural(tags.len() as i64, "тег", "тега", "тегов"),
+            i18n::ru_plural(notes_total, "заметка", "заметки", "заметок"),
+            i18n::ru_plural(projects_total, "проект", "проекта", "проектов"),
         ),
         Lang::En => (
-            if article_total == 1 { "entry" } else { "entries" },
-            if tags.len() == 1 { "tag" } else { "tags" },
+            if notes_total == 1 { "note" } else { "notes" },
+            if projects_total == 1 { "project" } else { "projects" },
         ),
     };
     w!(
         b,
         "<p class=\"tp-meta\"><span>{} {}</span><span>{} {}</span><span>{}</span></p>\n",
-        article_total,
-        entries_word,
-        tags.len(),
-        tags_word,
+        notes_total,
+        notes_word,
+        projects_total,
+        projects_word,
         esc(&p.location)
     );
     b.push_str("<p class=\"tp-links\">");
     w!(
         b,
         "<a href=\"{}\">{}</a><a href=\"{}\">{}</a>",
-        chrome.href("articles"),
-        tr.hero_cta_articles,
-        chrome.href("about"),
-        tr.hero_cta_about
+        chrome.href("projects"),
+        tr.hero_cta_projects,
+        chrome.href("notes"),
+        tr.hero_cta_notes
     );
     b.push_str("</p>\n</section>\n");
 
+    if !projects.is_empty() {
+        b.push_str("<section class=\"section\">\n");
+        w!(b, "<h2 class=\"sec-label\">{}</h2>\n", tr.nav_projects);
+        w!(b, "<p class=\"sec-note\">{}</p>\n", tr.projects_intro);
+        b.push_str(&ledger(chrome, projects));
+        w!(
+            b,
+            "<p class=\"more\"><a href=\"{}\">{} →</a></p>",
+            chrome.href("projects"),
+            tr.all_projects
+        );
+        b.push_str("</section>\n");
+    }
+
     b.push_str("<section class=\"section\">\n");
     w!(b, "<h2 class=\"sec-label\">{}</h2>\n", tr.latests);
-    if latests.is_empty() {
+    if notes.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
     } else {
-        b.push_str(&ledger(chrome, latests));
+        b.push_str(&ledger(chrome, notes));
     }
     w!(
         b,
         "<p class=\"more\"><a href=\"{}\">{} →</a></p>",
-        chrome.href("articles"),
+        chrome.href("notes"),
         tr.all_articles
     );
     b.push_str("</section>\n");
-
-    if !tags.is_empty() {
-        b.push_str("<section class=\"section\">\n");
-        w!(b, "<h2 class=\"sec-label\">{}</h2>\n", tr.all_tags);
-        b.push_str("<ul class=\"index\">");
-        for (tag, slug, count) in tags {
-            w!(
-                b,
-                "<li><a href=\"{}/tags/{}\">{} <span class=\"n\">{}</span></a></li>",
-                chrome.lang.prefix(),
-                slug,
-                esc(tag),
-                count
-            );
-        }
-        b.push_str("</ul></section>\n");
-    }
 
     let title = format!("{} — {}", p.owner_name, tr.site_role);
     layout(chrome, &title, statement, &b)
@@ -456,22 +503,9 @@ fn split_name(name: &str) -> (String, String) {
     }
 }
 
-fn search_box(chrome: &Chrome<'_>, query: Option<&str>) -> String {
-    let tr = chrome.t();
-    format!(
-        "<form class=\"search\" action=\"{}/articles\" method=\"get\" role=\"search\">\
-         <div class=\"search-field\">\
-         <input id=\"q\" name=\"q\" type=\"search\" value=\"{}\" placeholder=\"{}\" aria-label=\"{}\" autocomplete=\"off\" data-search-input>\
-         <button type=\"submit\">{}</button></div></form>",
-        chrome.lang.prefix(),
-        esc(query.unwrap_or("")),
-        tr.search_placeholder,
-        tr.search_label,
-        tr.search_submit
-    )
-}
+// --------------------------------------------------------------- sections
 
-pub fn article_page(
+pub fn entry_page(
     chrome: &Chrome<'_>,
     article: &Article,
     other: Option<&Article>,
@@ -482,11 +516,17 @@ pub fn article_page(
     let mut b = String::new();
     b.push_str("<div class=\"progress\" aria-hidden=\"true\"></div>");
     b.push_str("<article class=\"article\">\n");
+    let (back_label, index_label) = if article.is_project() {
+        (tr.nav_projects, tr.back_to_projects)
+    } else {
+        (tr.nav_notes, tr.back_to_articles)
+    };
     w!(
         b,
-        "<nav class=\"crumbs\" aria-label=\"Breadcrumb\"><a href=\"{}/articles\">← {}</a></nav>",
+        "<nav class=\"crumbs\" aria-label=\"Breadcrumb\"><a href=\"{}/{}\">← {}</a></nav>",
         chrome.lang.prefix(),
-        tr.nav_articles
+        article.section(),
+        back_label
     );
 
     // One catalogue line: entry number · date · reading time · revision.
@@ -494,9 +534,11 @@ pub fn article_page(
     w!(
         b,
         "<span class=\"no\">{}{}</span>",
-        match chrome.lang {
-            Lang::Ru => "запись",
-            Lang::En => "entry",
+        match (article.is_project(), chrome.lang) {
+            (true, Lang::Ru) => "проект",
+            (true, Lang::En) => "project",
+            (false, Lang::Ru) => "запись",
+            (false, Lang::En) => "entry",
         },
         format!(" {}", catalogue_no(article.id))
     );
@@ -533,8 +575,9 @@ pub fn article_page(
     if let Some(other) = other {
         w!(
             b,
-            "<a class=\"lang-swap\" href=\"{}/articles/{}\" hreflang=\"{}\">{}</a>",
+            "<a class=\"lang-swap\" href=\"{}/{}/{}\" hreflang=\"{}\">{}</a>",
             other.lang_enum().prefix(),
+            other.section(),
             esc(&other.slug),
             other.lang,
             tr.read_other_lang
@@ -561,7 +604,7 @@ pub fn article_page(
         catalogue_no(article.id),
         if chrome.lang == Lang::Ru { "в каталоге" } else { "in the catalogue" }
     );
-    w!(b, "<a href=\"{}/articles\">{}</a>", chrome.lang.prefix(), tr.back_to_articles);
+    w!(b, "<a href=\"{}/{}\">{}</a>", chrome.lang.prefix(), article.section(), index_label);
     b.push_str("</footer>\n");
     b.push_str("</div>\n");
 
@@ -624,7 +667,7 @@ pub fn article_page(
 
 // ------------------------------------------------------------------ about
 
-pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)]) -> String {
+pub fn about(chrome: &Chrome<'_>, notes: i64, projects: i64) -> String {
     let tr = chrome.t();
     let p = chrome.profile;
     let (manifesto, now, role) = match chrome.lang {
@@ -683,15 +726,15 @@ pub fn about(chrome: &Chrome<'_>, articles: i64, tags: &[(String, String, i64)])
         b,
         "<div class=\"manifesto\"><p>{} · {} {}, {} {}</p></div>",
         tr.about_license_text,
-        articles,
+        notes,
         match chrome.lang {
-            Lang::Ru => i18n::ru_plural(articles, "запись", "записи", "записей"),
-            Lang::En => if articles == 1 { "entry" } else { "entries" },
+            Lang::Ru => i18n::ru_plural(notes, "заметка", "заметки", "заметок"),
+            Lang::En => if notes == 1 { "note" } else { "notes" },
         },
-        tags.len(),
+        projects,
         match chrome.lang {
-            Lang::Ru => i18n::ru_plural(tags.len() as i64, "тег", "тега", "тегов"),
-            Lang::En => if tags.len() == 1 { "tag" } else { "tags" },
+            Lang::Ru => i18n::ru_plural(projects, "проект", "проекта", "проектов"),
+            Lang::En => if projects == 1 { "project" } else { "projects" },
         }
     );
     b.push_str("</div>\n</section>");
@@ -865,13 +908,14 @@ pub fn cabinet_articles(chrome: &Chrome<'_>, articles: &[Article], flash: Option
     if articles.is_empty() {
         w!(b, "<p class=\"empty\">{}</p>", tr.empty_state);
     } else {
-        b.push_str("<table class=\"tbl\"><thead><tr><th>Title</th><th>Language</th><th>Status</th><th>Views</th><th>Published</th><th></th></tr></thead><tbody>");
+        b.push_str("<table class=\"tbl\"><thead><tr><th>Title</th><th>Kind</th><th>Language</th><th>Status</th><th>Views</th><th>Published</th><th></th></tr></thead><tbody>");
         for a in articles {
             w!(
                 b,
-                "<tr><td><a href=\"/cabinet/articles/{}\">{}</a></td><td class=\"dim\">{}</td><td><span class=\"tag tag-{}\">{}</span></td><td class=\"dim\">{}</td><td class=\"dim\">{}</td><td class=\"ops right\">",
+                "<tr><td><a href=\"/cabinet/articles/{}\">{}</a></td><td class=\"dim\">{}</td><td class=\"dim\">{}</td><td><span class=\"tag tag-{}\">{}</span></td><td class=\"dim\">{}</td><td class=\"dim\">{}</td><td class=\"ops right\">",
                 a.id,
                 esc(&a.title),
+                a.kind,
                 a.lang,
                 a.status,
                 a.status,
@@ -905,11 +949,12 @@ pub fn cabinet_editor(
     chrome: &Chrome<'_>,
     article: Option<&Article>,
     tags: &[(String, String, i64)],
+    project_tags: &[(String, String, i64)],
     flash: Option<&str>,
     errors: &[String],
 ) -> String {
     let tr = chrome.t();
-    let (action, id, lang, slug, title, summary, body, tag_str, status, featured, published_at, key) = match article {
+    let (action, id, lang, slug, title, summary, body, tag_str, status, featured, published_at, key, kind) = match article {
         Some(a) => (
             format!("/cabinet/articles/{}", a.id),
             a.id,
@@ -923,6 +968,7 @@ pub fn cabinet_editor(
             a.featured,
             a.published_at,
             a.translation_key.clone(),
+            if a.is_project() { "project".to_string() } else { "note".to_string() },
         ),
         None => (
             "/cabinet/articles/new".to_string(),
@@ -937,6 +983,7 @@ pub fn cabinet_editor(
             false,
             0,
             String::new(),
+            "note".to_string(),
         ),
     };
     let mut b = String::new();
@@ -976,6 +1023,15 @@ pub fn cabinet_editor(
                 if *l == lang { " selected" } else { "" }
             ))
             .collect::<String>()
+    );
+    w!(
+        b,
+        "<label class=\"field\"><span class=\"label\">{}</span><select name=\"kind\"><option value=\"note\"{}>{}</option><option value=\"project\"{}>{}</option></select></label>",
+        tr.field_kind,
+        if kind == "note" { " selected" } else { "" },
+        tr.kind_note,
+        if kind == "project" { " selected" } else { "" },
+        tr.kind_project
     );
     w!(
         b,
@@ -1024,13 +1080,14 @@ pub fn cabinet_editor(
         b.push_str("<section class=\"panel\">");
         w!(
             b,
-            "<div class=\"panel-head\"><span>Preview</span><a href=\"{}/articles/{}\" target=\"_blank\" rel=\"noopener\">Open</a></div>\n<div class=\"prose\">{}</div></section>",
+            "<div class=\"panel-head\"><span>Preview</span><a href=\"{}/{}/{}\" target=\"_blank\" rel=\"noopener\">Open</a></div>\n<div class=\"prose\">{}</div></section>",
             a.lang_enum().prefix(),
+            a.section(),
             esc(&a.slug),
             render_markdown(&a.body_md).html
         );
     }
-    let _ = tags;
+    let _ = (tags, project_tags);
     cabinet_shell(
         chrome,
         if id > 0 { "articles" } else { "new" },
@@ -1287,8 +1344,8 @@ pub fn feed_xml(lang: Lang, profile: &Profile, articles: &[Article]) -> String {
     }
     for a in articles {
         w!(x, "<item>\n<title>{}</title>\n", esc(&a.title));
-        w!(x, "<link>{base}/articles/{}</link>\n", esc(&a.slug));
-        w!(x, "<guid isPermaLink=\"true\">{base}/articles/{}</guid>\n", esc(&a.slug));
+        w!(x, "<link>{base}{}</link>\n", entry_path(a.lang_enum().prefix(), a.section(), &a.slug));
+        w!(x, "<guid isPermaLink=\"true\">{base}/{}</guid>\n", entry_path(a.lang_enum().prefix(), a.section(), &a.slug));
         w!(x, "<pubDate>{}</pubDate>\n", i18n::format_rfc2822_utc(a.published_at));
         w!(x, "<description>{}</description>\n", esc(&a.summary));
         for tag in a.tag_list() {
@@ -1314,13 +1371,15 @@ pub fn sitemap_xml(profile: &Profile, articles: &[Article]) -> String {
     };
     add(format!("{base}/"), None, "1.0");
     add(format!("{base}/en"), None, "1.0");
-    add(format!("{base}/articles"), None, "0.9");
-    add(format!("{base}/en/articles"), None, "0.9");
+    add(format!("{base}/notes"), None, "0.9");
+    add(format!("{base}/en/notes"), None, "0.9");
+    add(format!("{base}/projects"), None, "0.9");
+    add(format!("{base}/en/projects"), None, "0.9");
     add(format!("{base}/about"), None, "0.6");
     add(format!("{base}/en/about"), None, "0.6");
     for a in articles {
         add(
-            format!("{base}{}/articles/{}", a.lang_enum().prefix(), a.slug),
+            format!("{base}{}", entry_path(a.lang_enum().prefix(), a.section(), &a.slug)),
             Some(i18n::format_date_utc(a.updated_at)),
             "0.8",
         );
@@ -1361,7 +1420,7 @@ mod tests {
 
     #[test]
     fn home_renders_without_leaking_placeholders() {
-        let html = home(&chrome(Lang::Ru), &[], &[], 8);
+        let html = home(&chrome(Lang::Ru), &[], &[], 8, 2);
         assert!(html.starts_with("<!doctype html>"));
         assert!(html.contains("Rudolf"));
         // No decorative instrument blocks and no per-request markers survive.
@@ -1378,6 +1437,7 @@ mod tests {
     #[test]
     fn article_page_escapes_and_switches_language() {
         let a = Article {
+            kind: "note".into(),
             id: 1,
             translation_key: "k".into(),
             lang: "ru".into(),
@@ -1394,7 +1454,7 @@ mod tests {
             created_at: 1_700_000_000,
             views: 3,
         };
-        let html = article_page(&chrome(Lang::Ru), &a, None, &[]);
+        let html = entry_page(&chrome(Lang::Ru), &a, None, &[]);
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("s1-head"));

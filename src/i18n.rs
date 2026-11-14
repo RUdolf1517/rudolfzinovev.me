@@ -10,7 +10,8 @@ pub use crate::models::Lang;
 pub struct T {
     pub site_role: &'static str,
     pub nav_index: &'static str,
-    pub nav_articles: &'static str,
+    pub nav_notes: &'static str,
+    pub nav_projects: &'static str,
     pub nav_about: &'static str,
     pub nav_cabinet: &'static str,
     pub nav_rss: &'static str,
@@ -18,8 +19,8 @@ pub struct T {
     pub lang_switch: &'static str,
 
     pub hero_kicker: &'static str,
-    pub hero_cta_articles: &'static str,
-    pub hero_cta_about: &'static str,
+    pub hero_cta_notes: &'static str,
+    pub hero_cta_projects: &'static str,
     pub hero_status: &'static str,
     pub hero_local_time: &'static str,
     pub hero_render: &'static str,
@@ -27,6 +28,7 @@ pub struct T {
     pub latests: &'static str,
     pub latests_sub: &'static str,
     pub all_articles: &'static str,
+    pub all_projects: &'static str,
     pub empty_state: &'static str,
     pub read_min: &'static str,
     pub min_short: &'static str,
@@ -34,6 +36,12 @@ pub struct T {
     pub updated_on: &'static str,
     pub views_count: &'static str,
     pub featured: &'static str,
+    pub field_kind: &'static str,
+    pub kind_note: &'static str,
+    pub kind_project: &'static str,
+    pub notes_intro: &'static str,
+    pub projects_intro: &'static str,
+    pub project_meta: &'static str,
     pub tags: &'static str,
     pub all_tags: &'static str,
     pub filter_by_tag: &'static str,
@@ -46,6 +54,7 @@ pub struct T {
 
     pub toc: &'static str,
     pub back_to_articles: &'static str,
+    pub back_to_projects: &'static str,
     pub read_other_lang: &'static str,
     pub related: &'static str,
     pub prev_next: &'static str,
@@ -129,7 +138,8 @@ pub struct T {
 pub static RU: T = T {
     site_role: "инженер-программист",
     nav_index: "Индекс",
-    nav_articles: "Статьи",
+    nav_notes: "Заметки",
+    nav_projects: "Проекты",
     nav_about: "О себе",
     nav_cabinet: "Кабинет",
     nav_rss: "RSS",
@@ -137,15 +147,22 @@ pub static RU: T = T {
     lang_switch: "Сменить язык",
 
     hero_kicker: "инженер-программист",
-    hero_cta_articles: "Читать статьи",
-    hero_cta_about: "Кто я такой",
+    hero_cta_notes: "Читать заметки",
+    hero_cta_projects: "Смотреть проекты",
     hero_status: "статус",
     hero_local_time: "время сборки страницы",
     hero_render: "рендер",
 
     latests: "Свежие записи",
     latests_sub: "Заметки о системах, коде и замерах.",
-    all_articles: "Все статьи",
+    all_articles: "Все заметки",
+    all_projects: "Каталог проектов",
+    projects_intro: "Вещи, которые можно запустить: серверы, утилиты и эксперименты, доведённые до рабочего состояния.",
+    notes_intro: "Личные записи без редактора и дедлайна: системы, код, замеры.",
+    project_meta: "проект",
+    field_kind: "Тип записи",
+    kind_note: "заметка",
+    kind_project: "проект",
     empty_state: "Пока пусто. Первая запись появится из кабинета.",
     read_min: "мин чтения",
     min_short: "мин",
@@ -164,7 +181,8 @@ pub static RU: T = T {
     clear: "сбросить",
 
     toc: "Оглавление",
-    back_to_articles: "← к списку статей",
+    back_to_articles: "← к списку заметок",
+    back_to_projects: "← к каталогу проектов",
     read_other_lang: "Читать на английском",
     related: "Похожие записи",
     prev_next: "Навигация",
@@ -248,7 +266,8 @@ pub static RU: T = T {
 pub static EN: T = T {
     site_role: "software engineer",
     nav_index: "Index",
-    nav_articles: "Articles",
+    nav_notes: "Notes",
+    nav_projects: "Projects",
     nav_about: "About",
     nav_cabinet: "Cabinet",
     nav_rss: "RSS",
@@ -256,15 +275,22 @@ pub static EN: T = T {
     lang_switch: "Switch language",
 
     hero_kicker: "software engineer",
-    hero_cta_articles: "Read the articles",
-    hero_cta_about: "Who I am",
+    hero_cta_notes: "Read the notes",
+    hero_cta_projects: "See the projects",
     hero_status: "status",
     hero_local_time: "page build time",
     hero_render: "render",
 
     latests: "Latest entries",
     latests_sub: "Notes on systems, code and measurements.",
-    all_articles: "All articles",
+    all_articles: "All notes",
+    all_projects: "Project catalogue",
+    projects_intro: "Things you can run: servers, utilities and experiments taken all the way to a working state.",
+    notes_intro: "Personal entries without an editor or a deadline: systems, code, measurements.",
+    project_meta: "project",
+    field_kind: "Entry kind",
+    kind_note: "note",
+    kind_project: "project",
     empty_state: "Nothing here yet. The first entry comes from the cabinet.",
     read_min: "min read",
     min_short: "min",
@@ -283,7 +309,8 @@ pub static EN: T = T {
     clear: "clear",
 
     toc: "Contents",
-    back_to_articles: "← all articles",
+    back_to_articles: "← all notes",
+    back_to_projects: "← project catalogue",
     read_other_lang: "Read in Russian",
     related: "Related entries",
     prev_next: "Navigation",
@@ -461,7 +488,9 @@ mod tests {
 
     #[test]
     fn dictionaries_are_complete() {
-        assert_eq!(t(Lang::Ru).nav_articles, "Статьи");
-        assert_eq!(t(Lang::En).nav_articles, "Articles");
+        assert_eq!(t(Lang::Ru).nav_notes, "Заметки");
+        assert_eq!(t(Lang::En).nav_notes, "Notes");
+        assert_eq!(t(Lang::Ru).nav_projects, "Проекты");
+        assert_eq!(t(Lang::En).nav_projects, "Projects");
     }
 }
