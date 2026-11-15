@@ -1850,7 +1850,7 @@ fn project_sections(chrome: &Chrome<'_>, article: &Article, view: &ProjectView<'
                 w!(
                     b,
                     "<time class=\"journal-date\" datetime=\"{}\">{}</time>",
-                    note.date_iso(),
+                    note.date_machine(),
                     note.date_iso()
                 );
                 w!(b, "<h4 class=\"journal-title\">{}</h4>", esc(&note.title));
@@ -1907,22 +1907,27 @@ pub fn cabinet_project(
     link: Option<&RepoLink>,
     events: &[crate::github::GhEvent],
     counts: (i64, i64, i64),
+    notes: &[ProjectNote],
     flash: Option<&str>,
     error: Option<&str>,
 ) -> String {
+    let ru = chrome.lang == Lang::Ru;
+    let t = |rus: &'static str, eng: &'static str| if ru { rus } else { eng };
     let mut b = String::new();
     if let Some(err) = error {
         w!(b, "<p class=\"alert\" role=\"alert\">{}</p>", esc(err));
     }
     let linked = link.filter(|l| l.is_linked());
+    let date = crate::i18n::format_date_dots;
 
+    // ---------------------------------------------------------- repository
     b.push_str("<section class=\"panel\">");
     w!(
         b,
         "<div class=\"panel-head\"><span>{}</span><a href=\"/cabinet/articles/{}\">{} →</a></div>",
         esc(&article.title),
         article.id,
-        esc("entry")
+        t("запись", "entry")
     );
 
     if let Some(link) = linked {
@@ -1930,57 +1935,109 @@ pub fn cabinet_project(
         let row = |k: &str, v: String| {
             format!("<tr><th class=\"dim\">{}</th><td>{}</td></tr>", esc(k), v)
         };
-        b.push_str(&row("Repository", esc(&link.repo)));
+        b.push_str(&row(t("Репозиторий", "Repository"), esc(&link.repo)));
+        if !link.description.is_empty() {
+            b.push_str(&row(t("Описание", "Description"), esc(&link.description)));
+        }
         b.push_str(&row(
-            "Facts",
+            t("Сведения", "Facts"),
             format!(
                 "★ {} · ⑂ {} · {} · {}",
                 link.stars, link.forks, esc(&link.language), esc(&link.license)
             ),
         ));
         if !link.release_tag.is_empty() {
-            b.push_str(&row("Latest release", esc(&link.release_tag)));
+            b.push_str(&row(
+                t("Последний релиз", "Latest release"),
+                format!(
+                    "{} <span class=\"dim\">· {}</span>",
+                    esc(&link.release_tag),
+                    if link.release_at > 0 {
+                        date(link.release_at)
+                    } else {
+                        String::new()
+                    }
+                ),
+            ));
+        }
+        if link.pushed_at > 0 {
+            b.push_str(&row(
+                t("Последний коммит", "Last commit"),
+                date(link.pushed_at),
+            ));
         }
         b.push_str(&row(
-            "Last refresh",
+            t("Обновлено", "Last refresh"),
             if link.fetched_at > 0 {
-                crate::i18n::format_date_utc(link.fetched_at)
+                format!(
+                    "{} <span class=\"dim\">· {}</span>",
+                    date(link.fetched_at),
+                    t("обновляется само", "refreshes on its own")
+                )
             } else {
-                "never".to_string()
+                t("ещё не загружалось", "never fetched").to_string()
             },
         ));
+        if link.show_issues {
+            b.push_str(&row(
+                t("Открытых issues", "Open issues"),
+                link.open_issues.to_string(),
+            ));
+        }
         if !link.last_error.is_empty() {
             b.push_str(&row(
-                "Last error",
+                t("Последняя ошибка", "Last error"),
                 format!("<span class=\"danger\">{}</span>", esc(&link.last_error)),
             ));
         }
         b.push_str(&row(
-            "Timeline",
-            format!("{} events cached", events.len()),
+            t("Автоматическая история", "Automatic history"),
+            format!(
+                "{} <span class=\"dim\">· {}</span>",
+                match events.len() {
+                    0 => t("пока пусто", "nothing cached yet").to_string(),
+                    n => format!("{} {}", n, t("событий в кэше", "events cached")),
+                },
+                t("коммиты, релизы, README", "commits, releases, README")
+            ),
         ));
         b.push_str("</tbody></table>");
 
         b.push_str("<div class=\"panel-actions\">");
         w!(
             b,
-            "<form method=\"post\" action=\"/cabinet/projects/{}/refresh\" class=\"inline\"><button class=\"btn\" type=\"submit\">Refresh now</button></form>",
-            article.id
+            "<form method=\"post\" action=\"/cabinet/projects/{}/refresh\" class=\"inline\"><button class=\"btn\" type=\"submit\">{}</button></form>",
+            article.id,
+            t("Обновить сейчас", "Refresh now")
         );
         w!(
             b,
-            "<form method=\"post\" action=\"/cabinet/projects/{}/unlink\" class=\"inline\" data-confirm=\"Forget the cached snapshot for this repository?\"><button class=\"link-btn danger\" type=\"submit\">Unlink</button></form>",
-            article.id
+            "<form method=\"post\" action=\"/cabinet/projects/{}/unlink\" class=\"inline\" data-confirm=\"{}\"><button class=\"link-btn danger\" type=\"submit\">{}</button></form>",
+            article.id,
+            t("Забыть сохранённые данные об этом репозитории?", "Forget the cached snapshot for this repository?"),
+            t("Отвязать", "Unlink")
         );
         b.push_str("</div>");
     } else {
-        b.push_str("<p class=\"panel-note\">No repository bound yet. Paste <code>owner/name</code> or a GitHub URL.</p>");
+        w!(
+            b,
+            "<p class=\"panel-note\">{}</p>",
+            t(
+                "Репозиторий пока не привязан. Вставь <code>owner/name</code> или ссылку на GitHub.",
+                "No repository bound yet. Paste <code>owner/name</code> or a GitHub URL."
+            )
+        );
     }
     b.push_str("</section>");
 
-    // Binding form.
+    // ------------------------------------------------------- binding form
     b.push_str("<section class=\"panel\">");
-    b.push_str("<div class=\"panel-head\"><span>GitHub repository</span><span class=\"dim\">public repos only</span></div>");
+    w!(
+        b,
+        "<div class=\"panel-head\"><span>{}</span><span class=\"dim\">{}</span></div>",
+        t("GitHub-репозиторий", "GitHub repository"),
+        t("только публичные", "public repos only")
+    );
     w!(
         b,
         "<form method=\"post\" action=\"/cabinet/projects/{}/link\" class=\"form\">",
@@ -1988,41 +2045,104 @@ pub fn cabinet_project(
     );
     w!(
         b,
-        "<label class=\"field field-full\"><span class=\"label\">Repository</span><input name=\"repo\" type=\"text\" value=\"{}\" placeholder=\"RUdolf1517/tzim\" maxlength=\"140\"></label>",
+        "<label class=\"field field-full\"><span class=\"label\">{}</span><input name=\"repo\" type=\"text\" value=\"{}\" placeholder=\"RUdolf1517/tzim\" maxlength=\"140\"></label>",
+        t("Репозиторий", "Repository"),
         esc(linked.map(|l| l.repo.as_str()).unwrap_or(""))
     );
     w!(
         b,
-        "<label class=\"switch\"><input type=\"checkbox\" name=\"show_issues\" value=\"1\"{}><span>Show open issues count</span></label>",
+        "<label class=\"switch\"><input type=\"checkbox\" name=\"show_issues\" value=\"1\"{}><span>{}</span></label>",
         if linked.map(|l| l.show_issues).unwrap_or(false) {
             " checked"
         } else {
             ""
-        }
+        },
+        t("Показывать число открытых issues", "Show open issues count")
     );
     b.push_str("<div class=\"form-actions\"><div class=\"form-actions-right\">");
-    b.push_str("<button class=\"btn btn-solid\" type=\"submit\">Save link</button>");
+    w!(
+        b,
+        "<button class=\"btn btn-solid\" type=\"submit\">{}</button>",
+        t("Сохранить", "Save link")
+    );
     b.push_str("</div></div></form>");
-    b.push_str("<p class=\"panel-foot\">Commits, releases and README changes are fetched automatically and cached. Issues and pull requests stay off unless enabled above.</p>");
+    w!(
+        b,
+        "<p class=\"panel-foot\">{}</p>",
+        t(
+            "Коммиты, релизы и изменения README загружаются автоматически и кэшируются. Issues и pull requests выключены, пока не отмечено выше.",
+            "Commits, releases and README changes are fetched automatically and cached. Issues and pull requests stay off unless enabled above."
+        )
+    );
     b.push_str("</section>");
 
-    // Journal.
+    // ------------------------------------------------------------- journal
     b.push_str("<section class=\"panel\">");
     w!(
         b,
-        "<div class=\"panel-head\"><span>Journal</span><a href=\"/cabinet/projects/{}/notes/new\">+ add</a></div>",
-        article.id
+        "<div class=\"panel-head\"><span>{}</span><a href=\"/cabinet/projects/{}/notes/new\">+ {}</a></div>",
+        t("Личные заметки", "Journal"),
+        article.id,
+        t("добавить", "add")
     );
     w!(
         b,
-        "<p class=\"panel-note\">Notes you write yourself: {} observations · {} decisions · {} milestones. Shown under the GitHub timeline, never mixed into it.</p>",
-        counts.0,
-        counts.1,
-        counts.2
+        "<p class=\"panel-note\">{}: {} · {} · {}. {}</p>",
+        t("Написаны тобой и никогда не смешиваются с GitHub", "Written by you and never mixed with GitHub"),
+        format!("{} {}", counts.0, t("наблюдений", "observations")),
+        format!("{} {}", counts.1, t("решений", "decisions")),
+        format!("{} {}", counts.2, t("этапов", "milestones")),
+        t(
+            "Отдельный блок на странице проекта: свой шрифт, своя колонка на полях, свои метки N / D / M.",
+            "A separate block on the project page: its own type, its own margin column, its own N / D / M marks."
+        )
     );
+
+    if notes.is_empty() {
+        w!(
+            b,
+            "<p class=\"panel-note\">{}</p>",
+            t("Заметок пока нет.", "No entries yet.")
+        );
+    } else {
+        b.push_str("<table class=\"tbl\"><tbody>");
+        for n in notes {
+            let hidden = if n.public {
+                String::new()
+            } else {
+                format!(
+                    " <span class=\"dim\">· {}</span>",
+                    t("черновик, виден только тебе", "draft, visible to you only")
+                )
+            };
+            w!(
+                b,
+                "<tr><th class=\"dim mark-col\">{}</th><td><a href=\"/cabinet/projects/{}/notes/{}\">{}</a>\
+                 <span class=\"dim\">· {} · {}</span>{}</td></tr>",
+                format!(
+                    "{} {}",
+                    LogKind::from_code(&n.kind).mark(),
+                    date(n.log_date)
+                ),
+                n.project_id,
+                n.id,
+                esc(&n.title),
+                LogKind::from_code(&n.kind).label(chrome.lang),
+                n.lang,
+                hidden
+            );
+        }
+        b.push_str("</tbody></table>");
+    }
     b.push_str("</section>");
 
-    cabinet_shell(chrome, "projects", "Project · GitHub", &b, flash)
+    cabinet_shell(
+        chrome,
+        "projects",
+        t("Проект · GitHub", "Project · GitHub"),
+        &b,
+        flash,
+    )
 }
 
 /// Create or edit one journal entry.
@@ -2033,6 +2153,8 @@ pub fn cabinet_project_note(
     flash: Option<&str>,
     errors: &[String],
 ) -> String {
+    let ru = chrome.lang == Lang::Ru;
+    let t = |rus: &'static str, eng: &'static str| if ru { rus } else { eng };
     let mut b = String::new();
     if !errors.is_empty() {
         b.push_str("<div class=\"alert\" role=\"alert\">");
@@ -2041,6 +2163,7 @@ pub fn cabinet_project_note(
         }
         b.push_str("</div>");
     }
+    // A note belongs to the project in the URL, whatever the form says.
     let (action, kind, lang, title, body, date, public) = match note {
         Some(n) => (
             format!("/cabinet/projects/{}/notes/{}", n.project_id, n.id),
@@ -2048,7 +2171,7 @@ pub fn cabinet_project_note(
             n.lang.clone(),
             n.title.clone(),
             n.body_md.clone(),
-            crate::i18n::format_date_utc(n.log_date),
+            crate::i18n::format_date_dots(n.log_date),
             n.public,
         ),
         None => (
@@ -2057,76 +2180,103 @@ pub fn cabinet_project_note(
             chrome.lang.code().to_string(),
             String::new(),
             String::new(),
-            crate::i18n::format_date_utc(crate::i18n::now_unix()),
+            crate::i18n::format_date_dots(crate::i18n::now_unix()),
             true,
         ),
     };
 
     w!(
         b,
-        "<section class=\"panel\"><div class=\"panel-head\"><span>{}</span><a href=\"/cabinet/projects/{}\">← project</a></div>",
+        "<section class=\"panel\"><div class=\"panel-head\"><span>{}</span><a href=\"/cabinet/projects/{}\">← {}</a></div>",
         esc(&project.title),
-        project.id
+        project.id,
+        t("к проекту", "project")
+    );
+    w!(
+        b,
+        "<p class=\"panel-note\">{}</p>",
+        t(
+            "Запись в личном журнале проекта. На странице проекта она стоит отдельным блоком под историей GitHub — с другими шрифтами и метками N / D / M.",
+            "An entry in the project's own journal. On the project page it sits in its own block under the GitHub history, with its own type and N / D / M marks."
+        )
     );
     w!(b, "<form method=\"post\" action=\"{}\" class=\"form editor\">", action);
     b.push_str("<div class=\"form-grid\">");
     w!(
         b,
-        "<label class=\"field field-full\"><span class=\"label\">Title</span><input name=\"title\" type=\"text\" required value=\"{}\" maxlength=\"180\"></label>",
-        esc(&title)
+        "<label class=\"field field-full\"><span class=\"label\">{}</span><input name=\"title\" type=\"text\" required value=\"{}\" maxlength=\"180\" placeholder=\"{}\"></label>",
+        t("Заголовок", "Title"),
+        esc(&title),
+        t("Optimization strategy", "Optimization strategy")
     );
     w!(
         b,
-        "<label class=\"field\"><span class=\"label\">Type</span><select name=\"kind\">{}</select></label>",
+        "<label class=\"field\"><span class=\"label\">{}</span><select name=\"kind\">{}</select></label>",
+        t("Тип", "Type"),
         LogKind::all()
             .iter()
             .map(|k| format!(
                 "<option value=\"{}\"{}>{}</option>",
                 k.code(),
                 if k.code() == kind { " selected" } else { "" },
-                k.label(Lang::En)
+                k.label(chrome.lang)
             ))
             .collect::<String>()
     );
     w!(
         b,
-        "<label class=\"field\"><span class=\"label\">Language</span><select name=\"lang\"><option value=\"ru\"{}>ru</option><option value=\"en\"{}>en</option></select></label>",
+        "<label class=\"field\"><span class=\"label\">{}</span><select name=\"lang\"><option value=\"ru\"{}>ru</option><option value=\"en\"{}>en</option></select></label>",
+        t("Язык", "Language"),
         if lang == "ru" { " selected" } else { "" },
         if lang == "en" { " selected" } else { "" }
     );
     w!(
         b,
-        "<label class=\"field\"><span class=\"label\">Date</span><input name=\"date\" type=\"date\" value=\"{}\"></label>",
+        "<label class=\"field\"><span class=\"label\">{}</span><input name=\"date\" type=\"date\" value=\"{}\"></label>",
+        t("Дата", "Date"),
         date
     );
     w!(
         b,
-        "<label class=\"field\"><span class=\"label\">Visibility</span><select name=\"public\"><option value=\"1\"{}>public</option><option value=\"0\"{}>private</option></select></label>",
+        "<label class=\"field\"><span class=\"label\">{}</span><select name=\"public\"><option value=\"1\"{}>{}</option><option value=\"0\"{}>{}</option></select></label>",
+        t("Видимость", "Visibility"),
         if public { " selected" } else { "" },
-        if public { "" } else { " selected" }
+        t("публичная", "public"),
+        if public { "" } else { " selected" },
+        t("черновик", "private")
     );
     w!(
         b,
-        "<label class=\"field field-full\"><span class=\"label\">Body (Markdown)</span><textarea name=\"body_md\" rows=\"16\" spellcheck=\"false\" data-editor>{}</textarea></label>",
+        "<label class=\"field field-full\"><span class=\"label\">{}</span><textarea name=\"body_md\" rows=\"16\" spellcheck=\"false\" data-editor>{}</textarea></label>",
+        t("Содержание (Markdown)", "Body (Markdown)"),
         esc(&body)
     );
     b.push_str("</div><div class=\"form-actions\"><div class=\"form-actions-right\">");
-    b.push_str("<button class=\"btn btn-solid\" type=\"submit\">Save</button>");
+    w!(
+        b,
+        "<button class=\"btn btn-solid\" type=\"submit\">{}</button>",
+        t("Сохранить", "Save")
+    );
     b.push_str("</div></div></form></section>");
 
     if let Some(n) = note {
         w!(
             b,
-            "<section class=\"panel\"><div class=\"panel-head\"><span>Preview</span></div><div class=\"prose\">{}</div></section>",
+            "<section class=\"panel\"><div class=\"panel-head\"><span>{}</span><span class=\"dim\">{} {}</span></div><div class=\"prose\">{}</div></section>",
+            t("Предпросмотр", "Preview"),
+            LogKind::from_code(&n.kind).mark(),
+            crate::i18n::format_date_dots(n.log_date),
             render_markdown(&n.body_md).html
         );
         w!(
             b,
-            "<form method=\"post\" action=\"/cabinet/projects/{}/notes/{}/delete\" class=\"inline\" data-confirm=\"Delete this entry?\"><button class=\"link-btn danger\" type=\"submit\">Delete entry</button></form>",
+            "<form method=\"post\" action=\"/cabinet/projects/{}/notes/{}/delete\" class=\"inline\" data-confirm=\"{}\"><button class=\"link-btn danger\" type=\"submit\">{}</button></form>",
             n.project_id,
-            n.id
+            n.id,
+            t("Удалить эту запись?", "Delete this entry?"),
+            t("Удалить запись", "Delete entry")
         );
     }
 
-    cabinet_shell(chrome, "projects", "Journal entry", &b, flash)
+    cabinet_shell(chrome, "projects", t("Заметка журнала", "Journal entry"), &b, flash)
 }

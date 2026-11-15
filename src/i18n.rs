@@ -410,6 +410,12 @@ pub fn format_datetime_utc(ts: i64) -> String {
     format!("{y:04}-{m:02}-{d:02} {hh:02}:{mm:02} UTC")
 }
 
+/// `14.11.2026` — the way a date is written in the cabinet and on the site.
+pub fn format_date_dots(ts: i64) -> String {
+    let (y, m, d, _, _, _) = split_utc(ts);
+    format!("{d:02}.{m:02}.{y:04}")
+}
+
 /// RFC-2822 UTC timestamp for RSS `<pubDate>`.
 pub fn format_rfc2822_utc(ts: i64) -> String {
     let (y, m, d, hh, mm, ss) = split_utc(ts);

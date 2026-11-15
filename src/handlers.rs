@@ -432,6 +432,18 @@ fn flash(req: &Req, lang: Lang) -> Option<String> {
             Lang::Ru => "Запись возвращена в черновики.".to_string(),
             Lang::En => "Entry moved back to drafts.".to_string(),
         },
+        "linked" => match lang {
+            Lang::Ru => "Репозиторий привязан, данные загружены.".to_string(),
+            Lang::En => "Repository linked and fetched.".to_string(),
+        },
+        "unlinked" => match lang {
+            Lang::Ru => "Репозиторий отвязан, кэш очищен.".to_string(),
+            Lang::En => "Repository unlinked, cache cleared.".to_string(),
+        },
+        "refreshed" => match lang {
+            Lang::Ru => "Данные репозитория обновлены.".to_string(),
+            Lang::En => "Repository data refreshed.".to_string(),
+        },
         "password" => tr.cabinet_password_changed.to_string(),
         "revoked" => match lang {
             Lang::Ru => "Сессия завершена.".to_string(),
@@ -1404,6 +1416,13 @@ fn project_page(
         Vec::new()
     };
     let counts = h.state.store.project_note_counts(article.id).unwrap_or((0, 0, 0));
+    // The owner sees drafts too; the entry language follows the article, so a
+    // Russian project does not list its English entries under a Russian panel.
+    let notes = h
+        .state
+        .store
+        .project_notes(article.id, &article.lang, true)
+        .unwrap_or_default();
     let chrome = h.chrome(req, Lang::Ru, &profile);
     let flash = flash_msg.map(|s| s.to_string()).or_else(|| flash(req, Lang::Ru));
     let html = templates::cabinet_project(
@@ -1412,6 +1431,7 @@ fn project_page(
         link.as_ref(),
         &events,
         counts,
+        &notes,
         flash.as_deref(),
         error,
     );

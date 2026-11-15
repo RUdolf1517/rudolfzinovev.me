@@ -327,13 +327,16 @@ impl LogKind {
         }
     }
 
+    /// The three kinds, named. Deliberately not "note / decision / milestone"
+    /// in Russian: "заметка" would collide with the whole journal, so each kind
+    /// says what it actually is.
     pub fn label(self, lang: Lang) -> &'static str {
         match (self, lang) {
-            (LogKind::Note, Lang::Ru) => "наблюдение",
-            (LogKind::Note, Lang::En) => "observation",
-            (LogKind::Decision, Lang::Ru) => "решение",
+            (LogKind::Note, Lang::Ru) => "личная заметка",
+            (LogKind::Note, Lang::En) => "personal note",
+            (LogKind::Decision, Lang::Ru) => "техническое решение",
             (LogKind::Decision, Lang::En) => "decision",
-            (LogKind::Milestone, Lang::Ru) => "этап",
+            (LogKind::Milestone, Lang::Ru) => "важный этап",
             (LogKind::Milestone, Lang::En) => "milestone",
         }
     }
@@ -379,7 +382,13 @@ impl ProjectNote {
         LogKind::from_code(&self.kind)
     }
 
+    /// Human date for the journal: `14.11.2026`, never an ISO stamp.
     pub fn date_iso(&self) -> String {
+        crate::i18n::format_date_dots(self.log_date)
+    }
+
+    /// Machine date for `<time datetime="...">`: `2026-11-14`.
+    pub fn date_machine(&self) -> String {
         crate::i18n::format_date_utc(self.log_date)
     }
 }
