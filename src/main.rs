@@ -17,12 +17,8 @@ use std::sync::atomic::Ordering;
 use axum::Router;
 use axum::extract::{ConnectInfo, Request};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
-
-/// Trait for `HeaderValue::from_str`; without it the call needs a fully
-/// qualified path and the error reads like a missing method.
-use std::str::FromStr;
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::get;
 
 use rudolfzinovev_me::state::{ActiveGuard, AppState};

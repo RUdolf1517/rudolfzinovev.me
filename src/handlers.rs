@@ -10,21 +10,18 @@
 //! `State`, `Path`, `Query` and `HeaderMap`, so one handler reads the same as
 //! the next and the security-relevant parts stay auditable in one place.
 
-use std::collections::HashMap;
-use std::path::Path as FsPath;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 
 use crate::db::ArticleFilter;
 use crate::models::{
-    Article, BackupStats, Kind, Lang, LogKind, ProjectNote, Profile, RepoLink, SessionInfo, ViewRecord,
+    Article, BackupStats, Kind, Lang, LogKind, ProjectNote, Profile, SessionInfo, ViewRecord,
 };
 use crate::state::{
     AppState, CSRF_COOKIE, SESSION_COOKIE, lang_from_accept_language, split_lang, visitor_hash,
@@ -710,7 +707,7 @@ async fn project(
     Path(slug): Path<String>,
 ) -> Response {
     let path = uri.path().to_string();
-    let req = h.req(&axum::http::Method::GET, path, uri.query().map(str::to_string), &headers, None);
+    let req = h.req(&axum::http::Method::GET, path.clone(), uri.query().map(str::to_string), &headers, None);
     // Refresh a stale snapshot inline, but never let a GitHub failure touch the
     // response: the page always renders from cache.
     let (lang, _) = lang_of(&path);
@@ -1214,10 +1211,13 @@ async fn cabinet_profile_save(
             h.state.invalidate_profile();
             h.done(&req, Out::redirect("/cabinet/profile?msg=saved"))
         }
-        Err(err) => h.done(
-            &req,
-            Out::html(500, templates::server_error(&h.chrome(&req, Lang::Ru, &h.state.profile_now()))),
-        ),
+        Err(err) => {
+            eprintln!("profile save failed: {err}");
+            h.done(
+                &req,
+                Out::html(500, templates::server_error(&h.chrome(&req, Lang::Ru, &h.state.profile_now()))),
+            )
+        }
     }
 }
 

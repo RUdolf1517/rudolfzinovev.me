@@ -1,5 +1,7 @@
-//! Helpers the core used to borrow from the hand-written HTTP module: character
-//! truncation, bot detection, referrer host, form and URL decoding.
+//! Small helpers shared by the HTTP layer: character truncation, bot detection,
+//! referrer host, form and URL decoding, and the CSP hash of the inline script.
+
+use crate::crypto;
 
 /// Character-count truncation, not byte-count: Russian text is 2 bytes per
 /// letter and slicing by bytes would panic mid-codepoint.
