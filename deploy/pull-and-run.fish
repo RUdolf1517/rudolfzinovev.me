@@ -172,14 +172,27 @@ step "rudolfzinovev · локальный запуск"
 printf '  репозиторий: %s\n' $root
 
 command -q git; or die "нет git — поставь Xcode Command Line Tools: xcode-select --install"
+command -q curl; or die "нет curl — на macOS он входит в систему; проверь PATH"
+# cargo нужен только когда действительно будем собирать: -n означает «не собирай».
+if not set -q _flag_n
+    command -q cargo; or die "нет cargo — поставь Rust: https://rustup.rs (потом перезайди в терминал)"
+end
 
 # Проверяем, что ветка вообще есть в origin: иначе клон упадёт с невнятной
-# ошибкой, а после слияния ветки в main ссылка на неё станет битой.
+# ошибкой, а после слияния ветки в main ссылка на неё станет битой. Таймаут,
+# чтобы плохая сеть давала сообщение, а не бесконечное ожидание.
+set -gx GIT_TERMINAL_PROMPT 0
+set -gx GIT_HTTP_LOW_SPEED_LIMIT 1000
+set -gx GIT_HTTP_LOW_SPEED_TIME 30
+step "проверяю доступ к origin"
 if git ls-remote --exit-code --heads $repo_url $branch >/dev/null 2>&1
     ok "ветка $branch есть в origin"
 else
     if test $branch_given -eq 1
         die "ветки $branch нет в $repo_url"
+    end
+    if not git ls-remote --exit-code --heads $repo_url $fallback_branch >/dev/null 2>&1
+        die "не могу достучаться до GitHub и не вижу ветку $branch. Проверь сеть: git ls-remote $repo_url"
     end
     warn "ветки $branch больше нет в origin — беру $fallback_branch"
     set branch $fallback_branch
@@ -274,8 +287,6 @@ if test (uname -s) = Darwin
     set -q PKG_CONFIG_PATH; and set pkg_paths $pkg_paths $PKG_CONFIG_PATH
     set -gx PKG_CONFIG_PATH $pkg_paths
 end
-
-command -q cargo; or die "нет cargo — поставь Rust: https://rustup.rs"
 
 # -------------------------------------------------------------------- сборка
 
