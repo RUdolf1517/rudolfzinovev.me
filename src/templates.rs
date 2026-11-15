@@ -587,6 +587,12 @@ pub fn entry_page_with(
         w!(b, "<p class=\"article-sum\">{}</p>\n", esc(&article.summary));
     }
 
+    // Everything below the title reads inside one column. The tags line used to
+    // sit outside these wrappers while the body sat inside them, so under the
+    // two-column grid at >=1180px the tags took the narrow margin track and the
+    // body jumped into the second column. The wrapper is opened before the tags
+    // and closed in the same place as before.
+    b.push_str("<div class=\"chapter-flow\">");
     b.push_str("<div class=\"chapter-tags\">");
     for (tag, slug) in article.tag_list().iter().zip(article.tag_slugs()) {
         w!(
@@ -610,7 +616,6 @@ pub fn entry_page_with(
     }
     b.push_str("</div>\n");
 
-    b.push_str("<div class=\"chapter-flow\">");
     b.push_str("<div class=\"prose\">");
     b.push_str(&rendered.html);
     b.push_str("</div>\n");
@@ -634,7 +639,6 @@ pub fn entry_page_with(
     );
     w!(b, "<a href=\"{}/{}\">{}</a>", chrome.lang.prefix(), article.section(), index_label);
     b.push_str("</footer>\n");
-    b.push_str("</div>\n");
 
     // Contents wait in the margin, not in the way of the first paragraph.
     if !rendered.toc.is_empty() {
@@ -654,6 +658,8 @@ pub fn entry_page_with(
         }
         b.push_str("</ol></div></aside>\n");
     }
+    // Close the column that was opened before the tags line.
+    b.push_str("</div>\n");
     b.push_str("</article>\n");
     b.push_str("<footer class=\"article-foot\">");
     w!(
@@ -669,6 +675,7 @@ pub fn entry_page_with(
         if chrome.lang == Lang::Ru { "в каталоге" } else { "in the catalogue" }
     );
     w!(b, "<a href=\"{}/articles\">{}</a>", chrome.lang.prefix(), tr.back_to_articles);
+    b.push_str("</footer>\n");
     if !related.is_empty() {
         b.push_str("<section class=\"section\">\n");
         w!(b, "<h2 class=\"sec-label\">{}</h2>", tr.related);

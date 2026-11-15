@@ -474,6 +474,7 @@ p, li, blockquote { text-wrap: pretty; }
     align-items: start;
   }
   .chapter-flow { min-width: 0; }
+  .chapter-aside { min-width: 0; }
   .chapter-aside {
     display: block;
     position: sticky;
@@ -523,6 +524,10 @@ p, li, blockquote { text-wrap: pretty; }
   line-height: 1.74;
   color: var(--ink);
   max-width: 33em;
+  /* Grid and flex children default to min-width:auto, so a long link, code
+     span or table would stretch the column instead of wrapping. */
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 .prose > *:first-child { margin-top: 0; }
 .prose p { margin: 0 0 1.15em; text-wrap: pretty; }
@@ -534,6 +539,7 @@ p, li, blockquote { text-wrap: pretty; }
   color: var(--accent);
 }
 .prose strong { font-weight: 600; }
+.prose a, .prose code, .prose td { overflow-wrap: anywhere; }
 .prose a {
   color: var(--accent);
   border-bottom: 1px solid var(--mark);
