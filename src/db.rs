@@ -295,7 +295,7 @@ impl Store {
                 SqlParam::Int(ts),
                 SqlParam::Int(ts + SESSION_TTL_SECS),
                 SqlParam::Text(ip_hash),
-                SqlParam::Text(&crate::http::truncate_chars(ua, 120)),
+                SqlParam::Text(&crate::util::truncate_chars(ua, 120)),
             ],
         )?;
         Ok((token, csrf))
@@ -895,8 +895,8 @@ impl Store {
                 SqlParam::Int(v.status_code),
                 SqlParam::Int(v.render_us),
                 SqlParam::Int(v.bytes),
-                SqlParam::Text(&crate::http::truncate_chars(&v.referrer, 160)),
-                SqlParam::Text(&crate::http::truncate_chars(&v.ua, 140)),
+                SqlParam::Text(&crate::util::truncate_chars(&v.referrer, 160)),
+                SqlParam::Text(&crate::util::truncate_chars(&v.ua, 140)),
                 SqlParam::Int(v.is_bot as i64),
                 SqlParam::Text(&v.visitor_hash),
             ],

@@ -684,7 +684,7 @@ pub fn entry_page_with(
     }
 
     let desc = if article.summary.is_empty() {
-        crate::http::truncate_chars(&article.body_md.replace('#', "").replace('\n', " "), 155)
+        crate::util::truncate_chars(&article.body_md.replace('#', "").replace('\n', " "), 155)
     } else {
         article.summary.clone()
     };
@@ -1261,7 +1261,7 @@ pub fn cabinet_security(
             if s.current { "<span class=\"tag tag-current\">This device</span>" } else { "<span class=\"tag\">Active</span>" },
             i18n::format_datetime_utc(s.last_seen),
             i18n::format_date_utc(s.expires_at),
-            esc(&crate::http::truncate_chars(&s.ua, 40))
+            esc(&crate::util::truncate_chars(&s.ua, 40))
         );
         if !s.current {
             w!(

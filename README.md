@@ -1,10 +1,10 @@
 # rudolfzinovev.me
 
-> Персональный сайт и закрытый кабинет владельца. **Rust без единого внешнего крейта.**
-> A personal site and owner-only cabinet. **Rust, zero external crates.**
+> Персональный сайт и закрытый кабинет владельца. **Rust: axum для сети, всё остальное — свой код.**
+> A personal site and owner-only cabinet. **Rust: axum for the transport, everything else hand-written.**
 
-[![tests](https://img.shields.io/badge/tests-26%20passing-3f6b34)](#тесты)
-[![deps](https://img.shields.io/badge/dependencies-0-d9a04d)](#zero-crates)
+[![tests](https://img.shields.io/badge/tests-49%20passing-3f6b34)](#тесты)
+[![deps](https://img.shields.io/badge/dependencies-2%20direct-d9a04d)](#зависимости)
 [![binary](https://img.shields.io/badge/binary-910%20KB-191713)](#performance)
 [![license](https://img.shields.io/badge/license-RZ--NONCOMMERCIAL--1.0-c2542d)](LICENSE)
 
@@ -16,32 +16,42 @@
 |---|---|
 | **Сайт** | Каталог проектов + заметки с тегами, поиском и RSS; два языка (RU/EN), одна бумажная тема. |
 | **Кабинет** | `/cabinet` — только для владельца: Markdown-редактор с черновиками и публикацией, профиль и манифест сайта, приватная телеметрия, сессии и смена пароля, JSON-бэкап. |
-| **Стек** | Rust 2024, `std::net`, системные `libsqlite3` / `libcrypto` / `libz`. Ноль крейтов, ноль JS-сборки, ноль внешних запросов из браузера. |
+| **Стек** | Rust 2024, `axum` + `tokio` для HTTP, системные `libsqlite3` / `libcrypto` / `libz`. Две прямые зависимости, ноль JS-сборки, ноль внешних запросов из браузера. |
 | **Дизайн** | Архив, который читается как книга: колонтитул, каталожные номера, поля для заметок, тёплый бумажный фон. |
-| **Размер** | 910 КБ бинарник (400 КБ gzip), 9.5 КБ gzip главная страница, 1.4 КБ gzip JavaScript. |
+| **Размер** | ~2.4 МБ бинарник (~900 КБ gzip), 9.5 КБ gzip главная страница, 1.4 КБ gzip JavaScript. |
 | **Развёртывание** | Один бинарник + один файл SQLite на любом Debian/Ubuntu VPS. |
 
 ---
 
-## Zero crates
+## Зависимости / Dependencies
 
-`Cargo.toml` содержит **пустую секцию `[dependencies]`**. Всё, что обычно
-приходит из crates.io, реализовано в репозитории:
+В `Cargo.toml` две прямые зависимости — и только для транспорта:
+
+```toml
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query", "form"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+```
+
+Всё остальное по-прежнему реализовано в репозитории:
 
 | Обычно берут крейт | Здесь |
 |---|---|
-| `axum` / `actix-web` / `hyper` | `src/http.rs` — HTTP/1.1: keep-alive, пул потоков, разбор запроса, cookies, gzip, ETag/304, rate limiter |
 | `rusqlite` | `src/sqlite.rs` — тонкая обёртка над C API `libsqlite3` (`SQLITE_TRANSIENT`, WAL, busy_timeout) |
 | `argon2` / `ring` / `sha2` | `src/crypto.rs` — FFI к OpenSSL `libcrypto`: `RAND_bytes`, `SHA256`, `PKCS5_PBKDF2_HMAC` |
 | `flate2` | `src/crypto.rs` — `deflateInit2_` из `libz` (gzip, уровень 6) |
 | `chrono` / `time` | `src/i18n.rs` — `civil_from_days` для UTC-дат и RFC-2822 |
 | `pulldown-cmark` | `src/markdown.rs` — заголовки с якорями и TOC, код, таблицы, цитаты, списки, инлайн-разметка |
 | `tera` / `askama` | `src/templates.rs` — SSR-шаблоны на `format!` + экранирование |
-| `clap` | `src/main.rs` — разбор аргументов в 60 строк |
+| `reqwest` / `rustls` | `src/github.rs` — HTTPS через `TcpStream` + libssl, свой разбор ответа |
+| `serde_json` / `serde` | `src/json.rs` — свой парсер JSON |
+| `clap` | `src/main.rs` — разбор аргументов в 70 строк |
 
-Почему так: сборка занимает **~11 секунд** с нуля, `cargo build` не требует
-сети, supply-chain поверхность равна нулю, а бинарник линкуется только с тем,
-что уже есть в любом дистрибутиве. Подробнее — [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Что даёт axum: HTTP/1.1, keep-alive, chunked, пул соединений на tokio и
+корректное завершение по сигналу. Что осталось своим: маршрутизация
+(`src/handlers.rs`), заголовки безопасности и CSP, ETag/304, gzip, телеметрия,
+сессии и CSRF — они по-прежнему в одном месте и без «магии экстракторов».
+
+Подробнее — [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
@@ -131,13 +141,16 @@ rudolfzinovev seed
 
 ---
 
-## Второй бэкенд: `axum/`
+## Транспорт: axum
 
-В репозитории два сервера для одного сайта. Основной (`src/`) — без единой
-внешней зависимости; альтернативный (`axum/`) — на axum + tokio, он
-переиспользует всё ядро и заменяет только транспорт. Сборка второго:
-`cargo build -p rudolfzinovev-axum`. Подробности и чек-лист первой проверки —
-в [`axum/README.md`](axum/README.md).
+HTTP/1.1, keep-alive, chunked-тела, пул соединений и graceful shutdown —
+`axum 0.8` на `tokio`. Всё, что выше транспорта, своё: маршруты и
+middleware-обязанности живут в `src/handlers.rs`, состояние и сессии — в
+`src/state.rs`, запуск — в `src/main.rs`. Раньше здесь был свой HTTP-сервер на
+`std::net` (`http.rs` + `app.rs`, ~600 строк), он удалён: писать и отлаживать
+его заново при каждой правке заголовков смысла нет.
+
+Функционально бинарник тот же: тот же CLI, та же база, те же маршруты.
 
 ## Дизайн
 
@@ -189,11 +202,11 @@ rudolfzinovev seed
 | Заметка, gzip | **11.0 КБ** |
 | CSS, gzip | 5.7 КБ (инлайн, один запрос на документ) |
 | JS, gzip | **1.4 КБ** (progressive enhancement, без фреймворков) |
-| Бинарник | 910 КБ (400 КБ gzip) |
+| Бинарник | ~2.4 МБ (≈900 КБ gzip); было 910 КБ без axum — это цена hyper/tokio |
 | Внешние запросы браузера | **0** |
 
 Приёмы: инлайн CSS в `<head>`, `ETag` + `304` на каждый HTML-ответ,
-`Content-Encoding: gzip` на лету через `libz`, keep-alive с таймаутом 15 с,
+`Content-Encoding: gzip` на лету через `libz`, keep-alive на стороне hyper,
 `Cache-Control: immutable` для статики, отсутствие веб-шрифтов и трекеров.
 Телеметрия показывает `avg`/`p95` рендера в микросекундах — регрессии видны
 в кабинете, без профайлера.
@@ -375,8 +388,9 @@ sqlite3 /srv/rudolfzinovev/data/site.sqlite ".backup '/tmp/site-backup.sqlite'"
 ## Тесты
 
 ```bash
-cargo test          # 42 теста: HTTP-разбор, rate limiter, SQL, сессии, шаблоны, RSS,
-                    # даты, склонения, JSON-парсер, GitHub-клиент, журнал проекта
+cargo test          # 49 тестов: rate limiter, SQL, сессии, шаблоны, RSS, даты,
+                    # склонения, JSON-парсер, GitHub-клиент, журнал проекта,
+                    # плюс 5 тестов на реальных axum-обработчиках
 ```
 
 Тесты поднимают настоящую SQLite во временном каталоге и проходят полный
@@ -388,11 +402,11 @@ cargo test          # 42 теста: HTTP-разбор, rate limiter, SQL, се�
 
 ```text
 src/
-  main.rs       CLI, конфигурация, запуск сервера
   github.rs     GitHub REST через libssl: релизы, коммиты, README
   json.rs       разбор JSON без крейтов
-  app.rs        маршрутизация, авторизация, CSRF, телеметрия, кабинет
-  http.rs       HTTP/1.1, keep-alive, gzip, ETag, cookies, rate limiter
+  handlers.rs   маршруты, авторизация, CSRF, телеметрия, кабинет, GitHub, журнал
+  state.rs      AppState: хранилище, сессии, лимитеры
+  main.rs       CLI, tokio-рантайм, /healthz, graceful shutdown
   db.rs         схема, миграции, статьи, профиль, сессии, бэкап, демо-контент
   models.rs     Article, Profile, SessionInfo, Telemetry, Lang
   templates.rs  SSR-шаблоны: публичные страницы, кабинет, RSS, sitemap

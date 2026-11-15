@@ -297,7 +297,12 @@ if set -q _flag_n
     test -x $bin; or die "бинарника нет, а сборка отключена (-n)"
     warn "сборка пропущена (-n)"
 else
+    # Первая сборка на axum качает две зависимости с crates.io (axum + tokio и
+    # их дерево). Дальше они лежат в ~/.cargo и сеть не нужна.
     step "cargo build --release"
+    if not test -f Cargo.lock
+        warn "Cargo.lock нет — cargo создаст его сам при первой сборке"
+    end
     set -l started (date +%s)
     # Вывод не глушим: если сборка падает, сообщение об ошибке должно быть видно.
     if not cargo build --release

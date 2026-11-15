@@ -3,7 +3,7 @@ name = "rudolfzinovev-me"
 version = "0.1.0"
 edition = "2024"
 authors = ["Rudolf Zinovev <me@rudolfzinovev.me>"]
-description = "rudolfzinovev.me — Terminal-inspired Digital Brutalist personal site & owner cabinet in pure Rust"
+description = "rudolfzinovev.me — a personal site and owner cabinet on axum, with a zero-crate core"
 license-file = "LICENSE"
 publish = false
 
@@ -11,9 +11,15 @@ publish = false
 name = "rudolfzinovev"
 path = "src/main.rs"
 
+# The HTTP layer is axum/tokio. Everything below it — SQLite and OpenSSL through
+# FFI, password hashing, Markdown, templates, i18n, the GitHub client and its
+# JSON parser — is still hand-written and links no crates at all.
+#
+# Only `axum` and `tokio` are needed. serde was dropped: the single JSON document
+# the site emits (the cabinet backup) is already produced by hand in `db.rs`.
 [dependencies]
-# Zero external crates by design: links directly against system libsqlite3, libcrypto (OpenSSL 3), and libz.
-# Guarantees sub-second builds, zero supply-chain bloat, offline builds on any Linux VPS, and <1.5 MB binary size.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query", "form"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 
 [profile.release]
 opt-level = 3

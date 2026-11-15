@@ -1,8 +1,9 @@
 //! Request state and the pieces every handler needs: language from the path,
 //! owner-session lookup, flash messages, and the profile cache.
 //!
-//! Deliberately mirrors the zero-crate `App` (same TTL, same limiters, same
-//! cookie names) so the two implementations stay behaviourally comparable.
+//! One `AppState` behind an `Arc`, shared by every axum handler: the store, the
+//! profile cache, the login and write limiters, and the counters `/healthz`
+//! reports.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -18,7 +19,8 @@ pub const CSRF_COOKIE: &str = "rz_csrf";
 const PROFILE_TTL_SECS: i64 = 30;
 
 /// Fixed-window rate limiter: `limit` events per `window_secs`, then `lock_secs`
-/// of refusal. The same shape as the zero-crate version, kept allocation-light.
+/// of refusal. Kept allocation-light: the map is a plain `Vec` because the
+/// number of tracked keys (one site, one owner) is tiny.
 pub struct RateLimiter {
     state: Mutex<Vec<(String, u64, u64, u64)>>, // key, window_start, count, locked_until
     limit: usize,

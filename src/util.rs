@@ -1,6 +1,5 @@
-//! The only two helpers the core used to borrow from the discarded HTTP module.
-
-use crate::lang_code_request_free;
+//! Helpers the core used to borrow from the hand-written HTTP module: character
+//! truncation, bot detection, referrer host, form and URL decoding.
 
 /// Character-count truncation, not byte-count: Russian text is 2 bytes per
 /// letter and slicing by bytes would panic mid-codepoint.
@@ -9,8 +8,8 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
 }
 
 /// The CSP pins the inline script by base64(SHA-256), which is the only form a
-/// browser accepts. The zero-crate build computes the same value per request;
-/// here it is memoised, because the hash input is a compile-time constant.
+/// browser accepts. Computed once and memoised: the input is a compile-time
+/// constant, and this runs on every response.
 pub fn script_csp_hash() -> &'static str {
     static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HASH.get_or_init(|| crypto::base64_encode(&crypto::sha256_bytes(crate::templates::JS.as_bytes())))
