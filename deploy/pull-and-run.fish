@@ -53,11 +53,14 @@ if set -q argv[1]; and test "$argv[1]" = fetch-url
     exit $status
 end
 
-argparse --name=(status current-command) 'h/help' \
-    'b/branch=' 'p/port=8080' 't/target=' 'o/data=' 'w/workers=4' \
+# ВАЖНО: в fish спецификация — это только `короткий/длинный=`, где `=` значит
+# «принимает значение». Писать `p/port=8080` нельзя: fish отвечает
+# «Invalid option spec ... at char '8'». Значения по умолчанию заданы ниже.
+argparse --name=pull-and-run.fish 'h/help' \
+    'b/branch=' 'p/port=' 't/target=' 'o/data=' 'w/workers=' \
     'n/no-build' 'k/keep-old' 's/seed' 'd/detach' -- $argv
 or begin
-    printf 'см. pull-and-run.fish --help\n'
+    printf 'непонятный флаг, см. --help\n' >&2
     exit 2
 end
 
