@@ -33,17 +33,34 @@ set -g repo_url "https://github.com/RUdolf1517/rudolfzinovev.me.git"
 set -g default_branch "arena/b9b8d4dd-rudolfzinovev-me"
 set -g fallback_branch "main"
 
+# Скрипт одинаково работает и файлом, и через `curl … | fish`: `status filename`
+# в конвейере пуст, поэтому справка напечатана встроенным текстом.
 argparse --name=(status current-command) 'h/help' \
     'b/branch=' 'p/port=8080' 't/target=' 'o/data=' 'w/workers=4' \
     'n/no-build' 'k/keep-old' 's/seed' 'd/detach' -- $argv
 or begin
-    printf 'см. %s --help\n' (status filename)
+    printf 'см. pull-and-run.fish --help\n'
     exit 2
 end
 
 if set -q _flag_h
-    # Печатаем шапку файла без решёток — до первой строки, не начинающейся с «#».
-    awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' (status filename)
+    printf '%s\n' \
+        'pull-and-run.fish — скачать сайт с ветки и запустить локально' \
+        '' \
+        'Запуск:' \
+        '  pull-and-run.fish                 ветка по умолчанию, порт 8080' \
+        '  pull-and-run.fish -b main         другая ветка' \
+        '  pull-and-run.fish -p 9090         другой порт' \
+        '  pull-and-run.fish -t ~/src/rz     другой каталог для клона' \
+        '  pull-and-run.fish -n              без сборки, только перезапуск' \
+        '  pull-and-run.fish -s              + сид демо-данных' \
+        '  pull-and-run.fish -o ~/rzdata     свой каталог данных' \
+        '  pull-and-run.fish -d              в фоне, без ожидания Ctrl-C' \
+        '  pull-and-run.fish -k              упасть, если порт уже занят' \
+        '' \
+        'Клонирует репозиторий (если его нет) или обновляет рабочую копию на' \
+        'нужной ветке, собирает релиз, запускает сервер и открывает браузер.' \
+        'Слушает только 127.0.0.1.'
     exit 0
 end
 
