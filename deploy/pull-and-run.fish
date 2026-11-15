@@ -35,6 +35,24 @@ set -g fallback_branch "main"
 
 # Скрипт одинаково работает и файлом, и через `curl … | fish`: `status filename`
 # в конвейере пуст, поэтому справка напечатана встроенным текстом.
+# ------------------------------------------------------------------- fetch-url
+# Печатает этот скрипт из ветки через api.github.com — когда
+# raw.githubusercontent.com не резолвится. Использование:
+#   pull-and-run.fish fetch-url > ~/pull-and-run.fish
+if set -q argv[1]; and test "$argv[1]" = fetch-url
+    set -l ref arena/b9b8d4dd-rudolfzinovev-me
+    if set -q argv[2]
+        set ref $argv[2]
+    end
+    set -l url "https://api.github.com/repos/RUdolf1517/rudolfzinovev.me/contents/deploy/pull-and-run.fish?ref=$ref"
+    command -q curl; or begin
+        echo "нужен curl" >&2
+        exit 1
+    end
+    curl -fsSL -H 'Accept: application/vnd.github.raw' $url
+    exit $status
+end
+
 argparse --name=(status current-command) 'h/help' \
     'b/branch=' 'p/port=8080' 't/target=' 'o/data=' 'w/workers=4' \
     'n/no-build' 'k/keep-old' 's/seed' 'd/detach' -- $argv
@@ -57,6 +75,11 @@ if set -q _flag_h
         '  pull-and-run.fish -o ~/rzdata     свой каталог данных' \
         '  pull-and-run.fish -d              в фоне, без ожидания Ctrl-C' \
         '  pull-and-run.fish -k              упасть, если порт уже занят' \
+        '' \
+        'Если raw.githubusercontent.com не открывается (бывает в России),' \
+        'скачай сам через API и запусти:' \
+        '  pull-and-run.fish fetch-url > ~/pull-and-run.fish' \
+        '  chmod +x ~/pull-and-run.fish && ~/pull-and-run.fish' \
         '' \
         'Клонирует репозиторий (если его нет) или обновляет рабочую копию на' \
         'нужной ветке, собирает релиз, запускает сервер и открывает браузер.' \
