@@ -307,8 +307,18 @@ curl -fsSL https://raw.githubusercontent.com/RUdolf1517/rudolfzinovev.me/arena/b
 curl -fsSL https://raw.githubusercontent.com/RUdolf1517/rudolfzinovev.me/arena/b9b8d4dd-rudolfzinovev-me/deploy/pull-and-run.fish | fish -s -b main
 ```
 
-Если хочется файлом — каталог должен существовать, иначе `curl -o` падает с
-`(56) Failure writing output to destination`:
+**Если `raw.githubusercontent.com` не резолвится** (в России бывает) — есть
+`api.github.com`, он открывается. Одна команда создаёт файл через API:
+
+```fish
+curl -fsSL -H 'Accept: application/vnd.github.raw' 'https://api.github.com/repos/RUdolf1517/rudolfzinovev.me/contents/deploy/pull-and-run.fish?ref=arena/b9b8d4dd-rudolfzinovev-me' -o ~/pull-and-run.fish
+chmod +x ~/pull-and-run.fish && ~/pull-and-run.fish
+```
+
+А дальше скрипт умеет обновлять себя сам: `~/pull-and-run.fish fetch-url > ~/pull-and-run.fish`.
+
+Файлом, если каталог существует (иначе `curl -o` падает с `(56) Failure
+writing output to destination`):
 
 ```fish
 mkdir -p ~/bin
