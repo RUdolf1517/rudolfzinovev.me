@@ -451,7 +451,12 @@ end
 printf '\n'
 
 test $ready -eq 1; or die "сервер не ответил на /healthz. Смотри $log"
+# Какой именно коммит сейчас работает: иначе непонятно, обновились файлы или
+# собралась старая копия.
+set -l head (git -C $root rev-parse --short HEAD 2>/dev/null; or echo "?")
+set -l subject (git -C $root log -1 --pretty=%s 2>/dev/null; or echo "")
 ok "готово: http://$bind · pid $pid"
+printf '  код:     %s %s\n' $head (string sub -l 60 -- $subject)
 printf '  админка: http://%s/login\n' $bind
 if test $fresh_db -eq 1
     printf '  вход:    %s / %s\n' $owner $password
