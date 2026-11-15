@@ -20,6 +20,7 @@
 #   pull-and-run.fish -o ~/rzdata     свой каталог данных
 #   pull-and-run.fish -d              в фоне, без ожидания Ctrl-C
 #   pull-and-run.fish -k              упасть, если порт уже занят
+#   pull-and-run.fish -F              локальные правки в stash, затем обновление
 #
 # Что делает: клонирует репозиторий (если его нет) или обновляет рабочую копию
 # на нужной ветке, собирает релиз, освобождает порт, запускает сервер,
@@ -58,7 +59,7 @@ end
 # «Invalid option spec ... at char '8'». Значения по умолчанию заданы ниже.
 argparse --name=pull-and-run.fish 'h/help' \
     'b/branch=' 'p/port=' 't/target=' 'o/data=' 'w/workers=' \
-    'n/no-build' 'k/keep-old' 's/seed' 'd/detach' -- $argv
+    'n/no-build' 'k/keep-old' 's/seed' 'd/detach' 'F/force-pull' -- $argv
 or begin
     printf 'непонятный флаг, см. --help\n' >&2
     exit 2
@@ -78,6 +79,7 @@ if set -q _flag_h
         '  pull-and-run.fish -o ~/rzdata     свой каталог данных' \
         '  pull-and-run.fish -d              в фоне, без ожидания Ctrl-C' \
         '  pull-and-run.fish -k              упасть, если порт уже занят' \
+        '  pull-and-run.fish -F              локальные правки — в stash, затем pull' \
         '' \
         'Если raw.githubusercontent.com не открывается (бывает в России),' \
         'скачай сам через API и запусти:' \
@@ -115,6 +117,17 @@ end
 function tail_log --argument-names file
     if test -f $file
         test -s $file; and tail -n 20 $file
+    end
+end
+
+# Изменённые отслеживаемые файлы, которые при этом лежат в .gitignore.
+# Такой файл меняет cargo (Cargo.lock), и это не правка человека: такие
+# изменения не должны мешать обновлению, но и терять их нельзя — откладываем.
+function ignored_changes
+    for file in (git ls-files -m -z | string split0)
+        if git check-ignore --no-index -q -- $file
+            echo $file
+        end
     end
 end
 
@@ -228,19 +241,27 @@ else
     if test $remote_ok -eq 0
         warn "git fetch не прошёл — собираю то, что уже лежит локально"
     else
-        set -l dirty ""
-        if not git diff --quiet; or not git diff --cached --quiet
-            set dirty 1
-        end
-
         set -l current (git rev-parse --abbrev-ref HEAD 2>/dev/null)
         if test "$current" != "$branch"
-            if test -n "$dirty"
-                # Переключение ветки поверх правок — так теряют работу. Но и
-                # падать не обязательно: собираем то, что уже есть.
-                warn "в $root есть незакоммиченные правки; остаюсь на ветке $current"
-                set branch $current
+            # Переключение ветки поверх правок — так теряют работу. Флаг -F
+            # прячет локальные изменения (они остаются в stash), без него
+            # скрипт честно останавливается и ничего не собирает.
+            if set -q _flag_F
+                step "переключаюсь на ветку $branch (локальные правки — в stash)"
+                git stash push --include-untracked --message "pull-and-run "(date +%Y-%m-%dT%H:%M) 2>/dev/null
+                git switch --track -c $branch origin/$branch 2>/dev/null
+                or git switch $branch
+                or die "не смог переключиться на ветку $branch"
             else
+                set -l ignored (ignored_changes)
+                if test -n "$ignored"
+                    git update-index --assume-unchanged -- $ignored 2>/dev/null
+                end
+                set -l changed (git status --porcelain --untracked-files=no | string collect)
+                if test -n "$changed"
+                    printf '%s\n' $changed >&2
+                    die "в $root незакоммиченные правки, а нужна ветка $branch — закоммить их, убери (git checkout -- .) или запусти с -F (уйдут в stash)"
+                end
                 step "переключаюсь на ветку $branch"
                 git switch --track -c $branch origin/$branch 2>/dev/null
                 or git switch $branch
@@ -248,15 +269,34 @@ else
             end
         end
 
-        if test -n "$dirty"
-            warn "рабочая копия изменена — git pull пропущен"
-        else
-            step "забираю изменения"
-            if git pull --ff-only --quiet
-                ok "код обновлён до "(git rev-parse --short HEAD)
+        # Сборка могла оставить след в отслеживаемых файлах (лок-файл и т.п.)
+        # или кто-то правил код руками. В этом случае git pull не пройдёт, а
+        # молча собрать старое — худший исход: выглядит как «исправление не
+        # помогло». Поэтому падаем с объяснением.
+        # Cargo.lock (и подобное) cargo переписывает сам; такие файлы лежат в
+        # .gitignore и закоммичены только для истории. Помечаем их
+        # «не изменявшимися», иначе они навсегда блокируют pull.
+        set -l ignored (ignored_changes)
+        if test -n "$ignored"
+            step "сгенерированные файлы не мешают pull: "(string join ' ' -- $ignored)
+            git update-index --assume-unchanged -- $ignored 2>/dev/null
+        end
+        set -l changed (git status --porcelain --untracked-files=no | string collect)
+        if test -n "$changed"
+            if set -q _flag_F
+                step "прячу локальные правки в stash (-F)"
+                git stash push --include-untracked --message "pull-and-run "(date +%Y-%m-%dT%H:%M) 2>/dev/null
             else
-                warn "git pull не прошёл (ветки разошлись?) — собираю локальное состояние"
+                printf '%s\n' $changed >&2
+                die "рабочая копия изменена (см. выше) — git pull не пройдёт. Закоммить правки, откати их (git checkout -- .) или запусти с -F"
             end
+        end
+
+        step "забираю изменения"
+        if git pull --ff-only --quiet
+            ok "код обновлён до "(git rev-parse --short HEAD)
+        else
+            die "git pull не прошёл — локальная ветка разошлась с origin. Посмотри \`git status\` в $root"
         end
     end
 end
@@ -300,9 +340,8 @@ else
     # Первая сборка на axum качает две зависимости с crates.io (axum + tokio и
     # их дерево). Дальше они лежат в ~/.cargo и сеть не нужна.
     step "cargo build --release"
-    if not test -f Cargo.lock
-        warn "Cargo.lock нет — cargo создаст его сам при первой сборке"
-    end
+    # Cargo.lock не в репозитории: cargo соберёт дерево зависимостей сам.
+    # На macOS при первом запуске это несколько минут.
     set -l started (date +%s)
     # Вывод не глушим: если сборка падает, сообщение об ошибке должно быть видно.
     if not cargo build --release
