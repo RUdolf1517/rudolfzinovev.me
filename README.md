@@ -295,12 +295,26 @@ Issues и Pull Requests по умолчанию выключены. Включа
 собирает релиз, освобождает порт, запускает сервер, ждёт `/healthz` и
 открывает браузер.
 
+Запуск без сохранения файла на диск:
+
+```fish
+curl -fsSL https://raw.githubusercontent.com/RUdolf1517/rudolfzinovev.me/arena/b9b8d4dd-rudolfzinovev-me/deploy/pull-and-run.fish | fish
+```
+
+С флагами (аргументы идут после `-`):
+
+```fish
+curl -fsSL https://raw.githubusercontent.com/RUdolf1517/rudolfzinovev.me/arena/b9b8d4dd-rudolfzinovev-me/deploy/pull-and-run.fish | fish -s -b main
+```
+
+Если хочется файлом — каталог должен существовать, иначе `curl -o` падает с
+`(56) Failure writing output to destination`:
+
 ```fish
 mkdir -p ~/bin
 curl -fsSL https://raw.githubusercontent.com/RUdolf1517/rudolfzinovev.me/arena/b9b8d4dd-rudolfzinovev-me/deploy/pull-and-run.fish -o ~/bin/pull-and-run.fish
 chmod +x ~/bin/pull-and-run.fish
-~/bin/pull-and-run.fish              # http://127.0.0.1:8080
-~/bin/pull-and-run.fish -b main      # взять ветку main
+~/bin/pull-and-run.fish
 ```
 
 Полезные флаги: `-b` ветка, `-p 9090` порт, `-t ~/src/rz` другой каталог для
